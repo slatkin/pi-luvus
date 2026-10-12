@@ -1,6 +1,6 @@
 # pi-luvus
 
-pi integration for [Luvus](https://luvus.dev). It runs async subagents in Luvus panes, reports live agent status, and adds Luvus bar and notification modules, and subagent management and orchestration skills.
+pi integration for [Luvus](https://luvus.dev). It runs async subagents in Luvus panes, reports live agent status, and adds Luvus bar and notification modules, and subagent management and orchestration skills that try to leverage Luvus features.
 
 The subagent code descends from [HazAT/pi-interactive-subagents](https://github.com/HazAT/pi-interactive-subagents). The completion-nudge design comes from [maplezzk's port](https://github.com/maplezzk). Luvus is the only supported terminal host.
 
