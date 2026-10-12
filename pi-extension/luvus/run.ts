@@ -47,14 +47,16 @@ interface ChildOutcome {
 
 /**
  * Count the child's real reports to `parent` in its session file. The footer's
- * own `'<text>'` placeholders do not count.
+ * own `'<text>'` placeholders do not count. Any quoting of the message counts.
  */
 function countReports(sessionFile: string | undefined, parent: string): number {
   if (!sessionFile) return 0;
   try {
     const text = readFileSync(sessionFile, "utf8");
-    const sends = (marker: string): number => text.split(marker).length - 1;
-    return sends(`agent send ${parent} '`) - sends(`agent send ${parent} '<`);
+    // Single, double (JSON-escaped), or unquoted `$(...)` message; a `<`
+    // after the quote marks a placeholder.
+    const name = parent.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return text.match(new RegExp(`agent send ${name} (?:'(?!<)|\\\\?"(?!<)|\\$)`, "g"))?.length ?? 0;
   } catch {
     return 0;
   }

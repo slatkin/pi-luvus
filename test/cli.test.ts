@@ -288,6 +288,22 @@ describe("runSpec", () => {
     });
   });
 
+  it("counts a double-quoted report", async () => {
+    await withTempDirAsync(async (dir) => {
+      const session = join(dir, "session.jsonl");
+      const stub = join(dir, "reporter.mjs");
+      // JSONL escapes the quote: luvus agent send boss \"$(cat r.txt)\"
+      writeFileSync(stub, `import { appendFileSync } from "node:fs"; appendFileSync(${JSON.stringify(session)}, 'agent send boss \\\\"$(cat r.txt)\\\\"\\n');`);
+      const sent: string[] = [];
+      await runSpec(
+        { version: LAUNCH_SPEC_VERSION, name: "rev", env: {}, command: process.execPath, args: [stub], sessionFile: session, parent: "boss" },
+        undefined,
+        { env: { PATH: process.env.PATH }, stdout: () => {}, stderr: () => {}, sendToParent: (to, text) => sent.push(`${to}:${text}`) },
+      );
+      assert.deepEqual(sent, []);
+    });
+  });
+
   it("prints the sentinel and returns the child's code (0)", async () => {
     await withTempDirAsync(async (dir) => {
       const result = await runStubCase(dir, { env: { PI_STUB_CODE: "0" } });
