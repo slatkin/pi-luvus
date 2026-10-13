@@ -108,6 +108,34 @@ const STATUS_INTERVAL_KEY = Symbol.for(`pi-luvus/status-interval${INSTANCE_KEY}`
 const POLL_ABORT_KEY = Symbol.for(`pi-luvus/poll-abort-controller${INSTANCE_KEY}`);
 const UHP_STREAM_KEY = Symbol.for(`pi-luvus/uhp-stream${INSTANCE_KEY}`);
 
+/**
+ * Abort signal shared by every poll watcher this module load starts. Session
+ * teardown aborts it; session start re-arms it. A watcher must never inherit
+ * an already-aborted signal: `pollForExit` would fail it instantly with an
+ * empty result while the child it just launched is still starting.
+ */
+function resetModuleAbortController(): AbortController {
+  const controller = new AbortController();
+  (globalThis as any)[POLL_ABORT_KEY] = controller;
+  return controller;
+}
+
+function getModuleAbortController(): AbortController {
+  return (globalThis as any)[POLL_ABORT_KEY] as AbortController;
+}
+
+function getModuleAbortSignal(): AbortSignal {
+  return getModuleAbortController().signal;
+}
+
+/** Install a fresh lazy event stream and return it. The caller shuts the old
+ *  one down; a stream stopped by `shutdown()` never restarts. */
+function resetUhpEventStream(): UhpEventStream {
+  const stream = new UhpEventStream();
+  (globalThis as any)[UHP_STREAM_KEY] = stream;
+  return stream;
+}
+
 {
   const prevInterval = (globalThis as any)[WIDGET_INTERVAL_KEY];
   if (prevInterval) {
@@ -121,7 +149,7 @@ const UHP_STREAM_KEY = Symbol.for(`pi-luvus/uhp-stream${INSTANCE_KEY}`);
   }
   const prevAbort = (globalThis as any)[POLL_ABORT_KEY] as AbortController | undefined;
   if (prevAbort) prevAbort.abort();
-  (globalThis as any)[POLL_ABORT_KEY] = new AbortController();
+  resetModuleAbortController();
 
   // The previous module load's event stream child must not outlive the reload.
   const prevStream = (globalThis as any)[UHP_STREAM_KEY] as UhpEventStream | undefined;
@@ -129,12 +157,7 @@ const UHP_STREAM_KEY = Symbol.for(`pi-luvus/uhp-stream${INSTANCE_KEY}`);
 }
 
 /** One UHP event stream per pi process; it starts lazily on the first watcher. */
-const uhpEventStream = new UhpEventStream();
-(globalThis as any)[UHP_STREAM_KEY] = uhpEventStream;
-
-function getModuleAbortSignal(): AbortSignal {
-  return ((globalThis as any)[POLL_ABORT_KEY] as AbortController).signal;
-}
+let uhpEventStream = resetUhpEventStream();
 
 const SubagentParams = Type.Object({
   name: Type.String({ description: "Display name." }),
@@ -1410,6 +1433,7 @@ export const __test__ = {
   runningSubagents,
   formatElapsed,
   getDefaultSessionDirFor,
+  getModuleAbortController,
   watchSubagent,
   launchSubagent,
 };
@@ -1721,6 +1745,10 @@ async function watchSubagent(
   pi: ExtensionAPI,
 ): Promise<SubagentResult> {
   const { name, task, surface, startTime, sessionFile } = running;
+  // Either the per-agent watcher or a module-wide teardown (reload, session
+  // shutdown) can end the wait. Keep the combined signal so the catch below
+  // reports a cancellation instead of a bogus subagent failure.
+  const pollSignal = AbortSignal.any([signal, getModuleAbortSignal()]);
 
   try {
     // Watch the pane on the UHP event stream: it starts lazily on the first
@@ -1728,7 +1756,7 @@ async function watchSubagent(
     const releaseEventWatch = uhpEventStream.watch(surface);
     let result: Awaited<ReturnType<typeof pollForExit>>;
     try {
-      result = await pollForExit(surface, AbortSignal.any([signal, getModuleAbortSignal()]), {
+      result = await pollForExit(surface, pollSignal, {
         interval: 1000,
         sessionFile,
         sentinelFile: running.sentinelFile,
@@ -1851,7 +1879,7 @@ async function watchSubagent(
       // Best effort — we are unwinding, so nothing is injected.
     }
 
-    if (signal.aborted) {
+    if (pollSignal.aborted) {
       return {
         name,
         task,
@@ -1967,6 +1995,10 @@ export function isSubagentChild(env: NodeJS.ProcessEnv = process.env): boolean {
 }
 
 export default function subagentsExtension(pi: ExtensionAPI) {
+  // The controller this module load installed. Shutdown must abort this one,
+  // not whatever a later module load put in the shared slot.
+  const ownModuleAbort = getModuleAbortController();
+
   // Live sidebar status for this pane. A subagent child does NOT register it:
   // the child also loads luvus-done.ts, whose reporter is the single owner
   // of the status lease (see isSubagentChild).
@@ -1982,6 +2014,12 @@ export default function subagentsExtension(pi: ExtensionAPI) {
   // Capture the UI context for widget updates
   pi.on("session_start", (_event, ctx) => {
     latestCtx = ctx;
+    // A previous session's shutdown aborted the module-wide poll signal and
+    // stopped the event stream for good. Re-arm both so a spawn in this
+    // session is not born with an aborted signal.
+    resetModuleAbortController();
+    uhpEventStream.shutdown();
+    uhpEventStream = resetUhpEventStream();
   });
 
   // Clean up on session shutdown
@@ -1996,8 +2034,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
       statusInterval = null;
       (globalThis as any)[STATUS_INTERVAL_KEY] = null;
     }
-    const moduleAbort = (globalThis as any)[POLL_ABORT_KEY] as AbortController | undefined;
-    if (moduleAbort) moduleAbort.abort();
+    ownModuleAbort.abort();
     for (const [_id, agent] of runningSubagents) {
       agent.abortController?.abort();
     }

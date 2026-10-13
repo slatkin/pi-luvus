@@ -3952,4 +3952,17 @@ describe("subagent child status ownership", () => {
       restore();
     }
   });
+
+  it("re-arms the module poll signal after a session shutdown", () => {
+    const target = makeRecordingPi();
+    subagentsModule.default(target.pi);
+    // Session teardown aborts the signal every poll watcher shares...
+    target.fire("session_shutdown", undefined, CTX);
+    assert.equal(subagentsModule.__test__.getModuleAbortController().signal.aborted, true);
+    // ...and the next session must install a fresh one. Without this, the next
+    // spawn's watcher is born aborted and reports a failure at elapsed 0 while
+    // the child it launched is still starting.
+    target.fire("session_start", undefined, CTX);
+    assert.equal(subagentsModule.__test__.getModuleAbortController().signal.aborted, false);
+  });
 });
