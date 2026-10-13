@@ -134,7 +134,13 @@ export function createLiveTitleController(env: NodeJS.ProcessEnv = process.env):
     if (registeredInRuntime) return;
     registeredInRuntime = true;
     pi.on("before_agent_start", (event, ctx) => {
-      setFromPrompt(ctx, event?.prompt ?? "");
+      // Pi 1.2 also fires this for steer turns from pi.sendMessage with
+      // triggerTurn. Only a user prompt may claim the first-prompt title.
+      // The messageType check stays optional so the code also runs on
+      // older pi types without the user/custom union.
+      const trigger = event as { messageType?: string; prompt?: string } | undefined;
+      if (trigger?.messageType && trigger.messageType !== "user") return;
+      setFromPrompt(ctx, trigger?.prompt ?? "");
     });
     pi.on("session_start", (_event, ctx) => {
       setFromSession(ctx);

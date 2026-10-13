@@ -168,7 +168,18 @@ describe("live title controller", () => {
     const target = makePi();
     createLiveTitleController({}).register(target.pi as never);
     target.fire("session_start", ctx, { type: "session_start", reason: "reload" });
-    target.fire("before_agent_start", ctx, { prompt: "New prompt" });
+    target.fire("before_agent_start", ctx, { messageType: "user", prompt: "New prompt" });
     assert.deepEqual(titles, ["π - Reloaded prompt - app"]);
+  });
+
+  it("ignores a custom steer run from pi.sendMessage with triggerTurn", () => {
+    const { titles, ctx } = makeCtx();
+    const target = makePi();
+    createLiveTitleController({}).register(target.pi as never);
+    target.fire("before_agent_start", ctx, {
+      messageType: "custom",
+      message: { customType: "luvus_result", content: "done", display: true },
+    });
+    assert.deepEqual(titles, []);
   });
 });
