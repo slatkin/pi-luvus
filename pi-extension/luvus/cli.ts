@@ -14,6 +14,7 @@ import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import { agentDefinitionPaths, buildSubagentToolAllowlist, loadAgentDefaults } from "./agent-defs.ts";
+import { autoPrune, defaultScratchDir, pruneScratch, pruneSentinels, DEFAULT_PRUNE_MAX_AGE_DAYS } from "./prune.ts";
 import {
   LAUNCH_SPEC_VERSION,
   buildPaneTitle,
@@ -47,6 +48,7 @@ const USAGE = [
   "  node cli.ts resume --launch <spec> --prompt <file> [--name <child>] [--surface right|down|tab]",
   "  node cli.ts run <spec> [<prompt>]",
   "  node cli.ts last-message --session <file>",
+  "  node cli.ts prune [--scratch <dir>] [--max-age-days <n>] [--dry-run]",
 ].join("\n");
 
 const CLI_OPTIONS = {
@@ -61,6 +63,8 @@ const CLI_OPTIONS = {
   launch: { type: "string" },
   prompt: { type: "string" },
   session: { type: "string" },
+  "max-age-days": { type: "string" },
+  "dry-run": { type: "boolean" },
   help: { type: "boolean", short: "h" },
 } as const;
 
@@ -76,6 +80,8 @@ interface CliValues {
   launch?: string;
   prompt?: string;
   session?: string;
+  "max-age-days"?: string;
+  "dry-run"?: boolean;
   help?: boolean;
 }
 
@@ -212,6 +218,14 @@ function startCommand(values: CliValues, deps: CliDeps, placement: SurfacePlacem
   const paneLine = paneCommandLine(CLI_PATH, specPath, promptPath);
 
   mkdirSync(scratch, { recursive: true });
+  autoPrune(scratch);
+  if (values.scratch === undefined) {
+    try {
+      pruneSentinels(sentinelDir(env), { maxAgeMs: 86_400_000 });
+    } catch {
+      // Best effort; the launch continues.
+    }
+  }
   const briefText = readFileSync(brief, "utf8");
   writeFileSync(rolePromptPath, definition.body ? `${definition.body}\n` : "");
   writeFileSync(promptPath, `${briefText}\n${parentFooter(parent, env.LUVUS_PANE_ID)}\n`);
@@ -310,6 +324,43 @@ async function runCommand(positionals: string[], deps: CliDeps): Promise<number>
   return runSpec({ ...spec, command, args: [...resolved.slice(1), ...spec.args] }, promptPath, runDeps);
 }
 
+/** Sentinel root, overridable for tests so they never touch the real tmp folder. */
+function sentinelDir(env: NodeJS.ProcessEnv): string {
+  return env.PI_LUVUS_SENTINEL_DIR ?? tmpdir();
+}
+
+/** Parse `--max-age-days`, defaulting to `DEFAULT_PRUNE_MAX_AGE_DAYS`. */
+function pruneMaxAgeDays(value: string | undefined): number {
+  if (value === undefined) return DEFAULT_PRUNE_MAX_AGE_DAYS;
+  const days = Number(value);
+  if (!Number.isFinite(days) || days < 0) {
+    throw new Error(`--max-age-days must be a non-negative number: ${value}`);
+  }
+  return days;
+}
+
+/** `prune`: delete launcher files older than the retention. */
+function pruneCommand(values: CliValues, deps: CliDeps): number {
+  const write = deps.stdout ?? ((text: string) => process.stdout.write(text));
+  const scratch = resolve(values.scratch ?? defaultScratchDir());
+  const maxAgeDays = pruneMaxAgeDays(values["max-age-days"]);
+  const dryRun = values["dry-run"] === true;
+  const maxAgeMs = maxAgeDays * 86_400_000;
+  const files = pruneScratch(scratch, { maxAgeMs, dryRun });
+  const sentinels = pruneSentinels(sentinelDir(deps.env ?? process.env), { maxAgeMs: 86_400_000, dryRun });
+  write(JSON.stringify({
+    scratch,
+    maxAgeDays,
+    dryRun,
+    scanned: files.scanned,
+    deleted: files.deleted,
+    deletedBytes: files.deletedBytes,
+    sentinelScanned: sentinels.scanned,
+    sentinelDeleted: sentinels.deleted,
+  }) + "\n");
+  return 0;
+}
+
 /** `last-message`: print a session's last assistant message. */
 function lastMessageCommand(values: CliValues, deps: CliDeps): number {
   const write = deps.stdout ?? ((text: string) => process.stdout.write(text));
@@ -356,6 +407,7 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
   }
   if (command === "run") return runCommand(positionals.slice(1), deps);
   if (command === "last-message") return lastMessageCommand(values as CliValues, deps);
+  if (command === "prune") return pruneCommand(values as CliValues, deps);
   throw new Error(`unknown subcommand: ${command}\n${USAGE}`);
 }
 

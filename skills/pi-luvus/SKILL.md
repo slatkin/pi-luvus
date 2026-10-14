@@ -58,7 +58,13 @@ with user consent).
    ```
    `<cwd>` is the child's working directory; `--scratch` (default
    `${TMPDIR:-/tmp}/pi-luvus`) holds the generated prompt, role prompt
-   and launch spec. `--surface` places the new pane: `right` (default) splits
+   and launch spec. Each `start` deletes scratch files older than 7 days,
+   so the folder stays bounded; recent sessions stay for resume. To clean
+   on demand (add `--dry-run` to only list):
+   ```bash
+   node <skill-dir>/launch.ts prune [--scratch <dir>] [--max-age-days <n>] [--dry-run]
+   ```
+   `--surface` places the new pane: `right` (default) splits
    yours side by side, `down` stacks it below, `tab` gives it its own
    workspace tab; when omitted, it comes from the
    extension's `config.json`. On success it prints JSON on stdout:
