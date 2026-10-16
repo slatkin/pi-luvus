@@ -250,7 +250,9 @@ export function writeSurfaceConfig(
       try {
         base = JSON.parse(readFileSync(seed, "utf8")) as Record<string, unknown>;
         break;
-      } catch {}
+      } catch {
+        // Not valid JSON: try the next seed.
+      }
     }
   }
   base.surface = placement;
@@ -288,6 +290,7 @@ function readStatusConfigFile(
     if (errno.code === "ENOENT") {
       throw new Error(
         `Missing subagent status config. Expected ${configPath}${legacyPath ? `, ${legacyPath},` : ""} or ${examplePath}.`,
+        { cause: error },
       );
     }
     throw error;
@@ -311,7 +314,7 @@ export function loadStatusConfig(
     parsed = JSON.parse(rawConfig) as unknown;
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Invalid JSON in subagent config ${sourcePath}: ${detail}`);
+    throw new Error(`Invalid JSON in subagent config ${sourcePath}: ${detail}`, { cause: error });
   }
 
   return parseStatusConfig(parsed, sourcePath);

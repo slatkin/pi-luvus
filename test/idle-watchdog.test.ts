@@ -251,10 +251,9 @@ describe("idle-watchdog decideIdleAction", () => {
 
   it("never force-finishes a working child, however many stretches it pauses through", () => {
     let state: IdleWatchState = { nudges: 0 };
-    let stretch = T0;
     for (let round = 1; round <= 5; round++) {
       // 35s of work, then a 35s wait; decideIdleAction is only asked about the waits.
-      stretch = T0 + round * 70_000;
+      const stretch = T0 + round * 70_000;
       for (let now = stretch; now <= stretch + 70_000; now += 1_000) {
         const action = decide({ waitingSince: stretch, now, state });
         if (action === "nudge") {

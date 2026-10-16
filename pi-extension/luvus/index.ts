@@ -1816,7 +1816,9 @@ async function watchSubagent(
       if (running.sentinelFile) {
         try {
           summary = readFileSync(running.sentinelFile, "utf-8").trim();
-        } catch {}
+        } catch {
+          // Fall through to the screen read below.
+        }
       }
 
       if (!summary) {
@@ -1839,10 +1841,14 @@ async function watchSubagent(
         sessionId = copyClaudeSession(running.sentinelFile);
         try {
           unlinkSync(running.sentinelFile);
-        } catch {}
+        } catch {
+          // Best effort: the sentinel may already be gone.
+        }
         try {
           unlinkSync(running.sentinelFile + ".transcript");
-        } catch {}
+        } catch {
+          // Best effort: the transcript may already be gone.
+        }
       }
 
       try {

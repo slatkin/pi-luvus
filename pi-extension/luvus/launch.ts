@@ -124,17 +124,18 @@ export function readLaunchSpec(specPath: string): LaunchSpec {
     parsed = JSON.parse(readFileSync(specPath, "utf8"));
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Cannot read launch spec ${specPath}: ${detail}`);
+    throw new Error(`Cannot read launch spec ${specPath}: ${detail}`, { cause: error });
   }
   try {
     return validateLaunchSpec(parsed);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Cannot read launch spec ${specPath}: ${detail}`);
+    throw new Error(`Cannot read launch spec ${specPath}: ${detail}`, { cause: error });
   }
 }
 
 /** Characters double quotes cannot make literal in every supported shell. */
+// eslint-disable-next-line no-control-regex -- control characters must be rejected here
 const UNSAFE_PANE_TOKEN = /["`$%!]|\\\\|[\x00-\x1f\x7f-\x9f]/;
 
 function assertPaneToken(value: string): void {

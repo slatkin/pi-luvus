@@ -25,7 +25,9 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "test": "node --test test/test.ts test/cli.test.ts test/prune.test.ts test/report-cap.test.ts test/luvus-status.test.ts test/live-title.test.ts test/luvus-module-titles.test.ts test/luvus-module-usage-bar.test.ts test/uhp-events.test.ts test/turn-notify.test.ts test/context-alert.test.ts",
+    "test": "node --test \"test/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
@@ -42,8 +44,13 @@
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.87.1",
     "@earendil-works/pi-tui": "^0.87.1",
+    "@eslint/js": "^10.0.1",
     "@sinclair/typebox": "^0.34.49",
+    "eslint": "^10.12.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.13.0",
     "prettier": "^3.9.10",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.71.2"
   }
 }

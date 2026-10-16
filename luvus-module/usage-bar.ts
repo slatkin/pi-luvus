@@ -250,7 +250,7 @@ export function collectUsage(
 }
 
 function readCacheFile(path: string): UsageCache {
-  let text: string | null = null;
+  let text: string | null;
   try {
     text = readFileSync(path, "utf8");
   } catch {

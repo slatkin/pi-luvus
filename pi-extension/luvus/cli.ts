@@ -134,9 +134,7 @@ function isFile(path: string): boolean {
  * Require the three Luvus keys the launch needs, from the injected env rather
  * than this process's own, so a test can prove the refusal.
  */
-function assertLuvusEnv(
-  env: NodeJS.ProcessEnv,
-): asserts env is NodeJS.ProcessEnv & {
+function assertLuvusEnv(env: NodeJS.ProcessEnv): asserts env is NodeJS.ProcessEnv & {
   LUVUS_ENV: string;
   LUVUS_BIN_PATH: string;
   LUVUS_PANE_ID: string;

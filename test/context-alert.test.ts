@@ -16,7 +16,6 @@ import {
 } from "../pi-extension/luvus/context-alert.ts";
 import { listLuvusSessionsAsync, __setLuvusExecForTests__ } from "../pi-extension/luvus/luvus.ts";
 import { loadStatusConfig, parseStatusConfig } from "../pi-extension/luvus/status.ts";
-import subagentDoneExtension from "../pi-extension/luvus/luvus-done.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 

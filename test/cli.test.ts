@@ -583,7 +583,7 @@ const REPO_ROOT = resolve(TEST_DIR, "..");
 const CLI = join(REPO_ROOT, "pi-extension", "luvus", "cli.ts");
 
 let workdir = "";
-let luvusCalls: string[] = [];
+const luvusCalls: string[] = [];
 let defaultConfigPath = "";
 
 before(() => {

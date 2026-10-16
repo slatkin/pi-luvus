@@ -20,7 +20,7 @@
  * nudged. Provider-error turns write the error `.exit` sidecar so the parent
  * learns about failures promptly.
  */
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Box, Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { writeFileSync } from "node:fs";
@@ -296,7 +296,7 @@ export default function (pi: ExtensionAPI) {
     });
   }
 
-  function renderWidget(ctx: { ui: { setWidget: Function } }, _theme: any) {
+  function renderWidget(ctx: Pick<ExtensionContext, "ui">, _theme: any) {
     ctx.ui.setWidget(
       "luvus-tools",
       (_tui: any, theme: any) => {

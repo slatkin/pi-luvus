@@ -553,7 +553,9 @@ export async function pollForExit(
           if (existsSync(options.sentinelFile)) {
             return { reason: "sentinel", exitCode: 0 };
           }
-        } catch {}
+        } catch {
+          // An unreadable sentinel is treated as absent.
+        }
       }
 
       // Slow path: read terminal screen for sentinel (crash detection). While

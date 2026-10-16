@@ -17,6 +17,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { basename } from "node:path";
 
 /** Characters that cannot appear in an OSC title: C0, DEL, and C1 controls. */
+// eslint-disable-next-line no-control-regex -- these are the characters being stripped
 const TITLE_CONTROL_CHARS = /[\x00-\x1f\x7f-\x9f]/g;
 
 /** Longest prompt line kept in a title, shared with the subagent pane title. */

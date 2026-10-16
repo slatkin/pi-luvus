@@ -297,7 +297,7 @@ export function runLuvus(bin: string, args: readonly string[]): CliResult {
 }
 
 function readCacheFile(path: string): TitleCache {
-  let text: string | null = null;
+  let text: string | null;
   try {
     text = readFileSync(path, "utf8");
   } catch {

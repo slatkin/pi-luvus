@@ -67,9 +67,9 @@ function pruneDir(
   for (const name of names) {
     if (!matches(name)) continue;
     const path = join(dir, name);
-    let mtime = 0;
-    let size = 0;
-    let isFile = false;
+    let mtime: number;
+    let size: number;
+    let isFile: boolean;
     try {
       const stat = statSync(path);
       isFile = stat.isFile();
