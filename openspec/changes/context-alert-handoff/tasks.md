@@ -20,9 +20,9 @@
 
 ## 4. Handoff log
 
-- [ ] 4.1 Add `listLuvusSessionsAsync` to `luvus.ts` (D6), and `handoffLogPath`, `matchLuvusSession`, and `appendHandoffLog` to `context-alert.ts`. Verify with unit tests: `listLuvusSessionsAsync` through `__setLuvusExecForTests__` returns the parsed `{ "sessions": [...] }` object, and `null` on failure. `matchLuvusSession`: a matching `socket_path` → name; one table case where no match and no list both give the socket path; no socket path → `null`. `appendHandoffLog` writes one line with the row fields and does not throw when the write fails.
-- [ ] 4.2 Write the `alert` row from the `turn_end` handler and the `handoff` row from `luvus_done`, without waiting for them, and cache the server session for the process. Verify with one fake-`pi` test in `test/context-alert.test.ts`: an alert followed by a handoff gives two rows with the same `session`.
-- [ ] 4.3 Document `handoffs.jsonl` and the `jq` count query in the README. Verify that the documented query runs on a sample file with `jq`.
+- [x] 4.1 Add `listLuvusSessionsAsync` to `luvus.ts` (D6), and `handoffLogPath`, `matchLuvusSession`, and `appendHandoffLog` to `context-alert.ts`. Verify with unit tests: `listLuvusSessionsAsync` through `__setLuvusExecForTests__` returns the parsed `{ "sessions": [...] }` object, and `null` on failure. `matchLuvusSession`: a matching `socket_path` → name; one table case where no match and no list both give the socket path; no socket path → `null`. `appendHandoffLog` writes one line with the row fields and does not throw when the write fails.
+- [x] 4.2 Write the `alert` row from the `turn_end` handler and the `handoff` row from `luvus_done`, without waiting for them, and cache the server session for the process. Verify with one fake-`pi` test in `test/context-alert.test.ts`: an alert followed by a handoff gives two rows with the same `session`.
+- [x] 4.3 Document `handoffs.jsonl` and the `jq` count query in the README. Verify that the documented query runs on a sample file with `jq`.
 
 ## 5. Integration checks
 
