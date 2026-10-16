@@ -102,9 +102,12 @@ blocks until the child publishes a terminal status. Treat the result as a hint
 and confirm it against `<session>.exit`:
 
 - Exit 0: read `<session>.exit`. `{"type":"done"}` means the child finished
-  cleanly; `{"type":"error",...}` means a provider failure.
+  cleanly; `{"type":"handoff","message":...}` means it ended cleanly but the
+  task is NOT complete — the handoff text a fresh agent needs is in the
+  sidecar (see below); `{"type":"error",...}` means a provider failure.
 - Exit 2 ("pane not found") after the close grace: the wrapper has already
-  closed a done pane. Read `<session>.exit` — `done` means finished, absent
+  closed a done or handoff pane. Read `<session>.exit` — `done` means
+  finished, `handoff` means the task is not complete (see below), absent
   means a crash whose pane was closed by hand.
 - Exit 0 at once on a pane that has not registered a status lease yet is a
   false positive (Luvus's command fallback reads `done` on an empty pane).
@@ -131,6 +134,12 @@ and confirm it against `<session>.exit`:
   and used `caller_ping`): the question is in the file. `rm` it, write your
   answer to a prompt file, and run `resume` with that prompt. The
   pane stays open until you close it.
+- If you find `{"type":"handoff","message":...}` in `.exit` (the child ended
+  cleanly at its context alert, but the task is not complete): the handoff
+  text a fresh agent needs is in the sidecar. The pane closes itself after
+  the close grace, like a `done` pane — there is nothing to close. Do NOT
+  resume that session: start a NEW child with `node <skill-dir>/launch.ts
+  start` and put the handoff text in its brief.
 - `luvus pane read <id>` positional arg is unreliable — use `agent read`.
 - Close the pane only for `error`, `ping` and crash panes once you are done
   with them: `luvus pane close <P>`. A `done` pane closes itself after the
