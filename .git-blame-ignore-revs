@@ -1,0 +1,8 @@
+# Commits that only reformat code. git blame skips them so the reformat does
+# not hide the real author of every line.
+#
+# Enable locally:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# GitHub applies this file automatically.
+
+084fe00bcd3177c2d045b996db113e3cec6b1360
