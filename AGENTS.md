@@ -31,8 +31,4 @@ The user does all live tests and acceptance. A proposal can include a live test 
 
 ## Never Leave a Dirty Worktree
 
-NEVER leave a dirty worktree. A session must not end — normally, after a review, after a handoff, on interruption, or when stopped — with uncommitted or untracked files behind. Before a session ends: commit every change it made to a branch and push the branch. If the work is incomplete, commit it anyway on a branch whose commits say so. There is no exception and no one to blame: the session that made the change commits and pushes it. A clean worktree is a hard requirement, not a preference.
 
-## Commit & Pull Request Guidelines
-
-Recent commits use Conventional Commit-style subjects, for example `feat: subagent surface placement option`, `fix(subagents): surface provider errors`, and `docs: align README`. Use an imperative, scoped summary where helpful; mark breaking changes with `!`. In pull requests, explain the behavior change, list checks run, link the related issue or OpenSpec change when applicable, and include screenshots for visible widget or pane changes. Keep local `config.json` overrides out of commits; start from `config.json.example`.
