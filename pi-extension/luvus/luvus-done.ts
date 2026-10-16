@@ -20,7 +20,7 @@
  * nudged. Provider-error turns write the error `.exit` sidecar so the parent
  * learns about failures promptly.
  */
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Box, Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { writeFileSync } from "node:fs";
@@ -100,9 +100,7 @@ export interface SubagentErrorInfo {
  * Returns `null` when the latest assistant turn completed normally or was
  * aborted by the user (handled separately by shouldAutoExitOnAgentEnd).
  */
-export function findLatestAssistantError(
-  messages: any[] | undefined,
-): SubagentErrorInfo | null {
+export function findLatestAssistantError(messages: any[] | undefined): SubagentErrorInfo | null {
   if (!messages) return null;
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
@@ -110,7 +108,8 @@ export function findLatestAssistantError(
     if (msg.stopReason !== "error") return null;
     const raw = typeof msg.errorMessage === "string" ? msg.errorMessage.trim() : "";
     return {
-      errorMessage: raw || "Subagent agent loop ended with stopReason=error (no errorMessage field).",
+      errorMessage:
+        raw || "Subagent agent loop ended with stopReason=error (no errorMessage field).",
       stopReason: "error",
     };
   }
@@ -277,7 +276,9 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    const usage = (ctx as { getContextUsage?: () => ContextUsageLike | undefined } | undefined)?.getContextUsage?.();
+    const usage = (
+      ctx as { getContextUsage?: () => ContextUsageLike | undefined } | undefined
+    )?.getContextUsage?.();
     if (!shouldAlert(usage, contextAlertConfig.threshold)) return;
     if (typeof usage.tokens !== "number") return;
 
@@ -295,7 +296,7 @@ export default function (pi: ExtensionAPI) {
     });
   }
 
-  function renderWidget(ctx: { ui: { setWidget: Function } }, _theme: any) {
+  function renderWidget(ctx: Pick<ExtensionContext, "ui">, _theme: any) {
     ctx.ui.setWidget(
       "luvus-tools",
       (_tui: any, theme: any) => {
@@ -538,7 +539,9 @@ export default function (pi: ExtensionAPI) {
 
       ctx.shutdown();
       return {
-        content: [{ type: "text", text: "Ping sent. Session will exit and parent will be notified." }],
+        content: [
+          { type: "text", text: "Ping sent. Session will exit and parent will be notified." },
+        ],
         details: {},
       };
     },
@@ -564,7 +567,10 @@ export default function (pi: ExtensionAPI) {
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       // A whitespace-only handoff must fail before any state changes, so the
       // session stays open and the model can retry with real text (D4).
-      if (params.handoff !== undefined && (typeof params.handoff !== "string" || params.handoff.trim() === "")) {
+      if (
+        params.handoff !== undefined &&
+        (typeof params.handoff !== "string" || params.handoff.trim() === "")
+      ) {
         throw new Error(
           "luvus_done handoff must be a non-empty string: the handoff text a fresh agent needs to continue the task.",
         );
@@ -581,14 +587,18 @@ export default function (pi: ExtensionAPI) {
         writeFileSync(
           `${sessionFile}.exit`,
           JSON.stringify(
-            typeof params.handoff === "string" ? { type: "handoff", message: params.handoff } : { type: "done" },
+            typeof params.handoff === "string"
+              ? { type: "handoff", message: params.handoff }
+              : { type: "done" },
           ),
         );
       }
       // Only a handoff exit logs the `handoff` row; a plain done does not.
       // The token count comes from the usage at the exit itself (D6).
       if (typeof params.handoff === "string") {
-        const usage = (ctx as { getContextUsage?: () => ContextUsageLike | undefined } | undefined)?.getContextUsage?.();
+        const usage = (
+          ctx as { getContextUsage?: () => ContextUsageLike | undefined } | undefined
+        )?.getContextUsage?.();
         writeHandoffLogRow({
           at: new Date().toISOString(),
           event: "handoff",

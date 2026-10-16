@@ -59,8 +59,7 @@ export function seedSubagentSessionFile(params: {
     cwd: params.childCwd,
     parentSession: params.parentSessionFile,
   };
-  const contentLines =
-    params.mode === "fork" ? getForkContentLines(params.parentSessionFile) : [];
+  const contentLines = params.mode === "fork" ? getForkContentLines(params.parentSessionFile) : [];
   const lines = [JSON.stringify(header), ...contentLines];
 
   mkdirSync(dirname(params.childSessionFile), { recursive: true });
@@ -113,14 +112,9 @@ export function findLastAssistantMessage(entries: SessionEntry[]): string | null
 
     const stopReason = (msg.message as { stopReason?: unknown }).stopReason;
     const errorMessage = (msg.message as { errorMessage?: unknown }).errorMessage;
-    if (
-      stopReason === "error" &&
-      typeof errorMessage === "string" &&
-      errorMessage.trim() !== ""
-    ) {
+    if (stopReason === "error" && typeof errorMessage === "string" && errorMessage.trim() !== "") {
       return `Subagent error: ${errorMessage.trim()}`;
     }
   }
   return null;
 }
-

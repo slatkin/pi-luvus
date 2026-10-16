@@ -58,9 +58,10 @@ export function decideGoneAction(params: {
   if (params.readOk) params.state.failedReadSince = undefined;
   else params.state.failedReadSince ??= params.now;
 
-  const staleMs = params.activity === undefined
-    ? Math.max(0, params.now - (params.state.failedReadSince ?? params.now))
-    : Math.max(0, params.now - params.activity.updatedAt);
+  const staleMs =
+    params.activity === undefined
+      ? Math.max(0, params.now - (params.state.failedReadSince ?? params.now))
+      : Math.max(0, params.now - params.activity.updatedAt);
   if (staleMs < IDLE_GONE_MS) {
     params.state.gone = false;
     return "none";

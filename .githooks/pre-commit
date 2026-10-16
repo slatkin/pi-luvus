@@ -1,0 +1,15 @@
+#!/bin/sh
+# Local gate: the same four checks as .github/workflows/ci.yml, so a failure
+# here is a failure there, caught before the push.
+#
+# Quiet while it passes. On failure it prints that gate's output and stops.
+# Installed by the prepare script through core.hooksPath.
+# Bypass once with: git commit --no-verify
+set -e
+
+for gate in format:check lint typecheck test; do
+  if ! output=$(npm run "$gate" 2>&1); then
+    printf '\npre-commit: npm run %s failed\n\n%s\n' "$gate" "$output"
+    exit 1
+  fi
+done

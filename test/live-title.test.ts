@@ -22,7 +22,9 @@ interface MockCtx {
   ctx: ExtensionContext;
 }
 
-function makeCtx(opts: { cwd?: string; name?: string; entries?: readonly SessionEntryLike[] } = {}): MockCtx {
+function makeCtx(
+  opts: { cwd?: string; name?: string; entries?: readonly SessionEntryLike[] } = {},
+): MockCtx {
   const titles: string[] = [];
   const ctx = {
     cwd: opts.cwd ?? "/work/app",

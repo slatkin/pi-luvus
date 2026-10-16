@@ -8,7 +8,15 @@
  */
 import { after, describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -69,17 +77,26 @@ function session(id: string): AgentSession {
 describe("parseAgentSessions", () => {
   it("reads the Luvus envelope, a bare list, and junk", () => {
     const rows = [session("a"), { agent: "claude", session_id: "b" }];
-    assert.deepEqual(parseAgentSessions(JSON.stringify({ id: "1", result: { sessions: rows } })), rows);
+    assert.deepEqual(
+      parseAgentSessions(JSON.stringify({ id: "1", result: { sessions: rows } })),
+      rows,
+    );
     assert.deepEqual(parseAgentSessions(JSON.stringify(rows)), rows);
     assert.deepEqual(parseAgentSessions(JSON.stringify({ sessions: rows })), rows);
     assert.deepEqual(parseAgentSessions("not json"), []);
-    assert.deepEqual(parseAgentSessions(JSON.stringify({ result: { sessions: [{ agent: "pi" }] } })), []);
+    assert.deepEqual(
+      parseAgentSessions(JSON.stringify({ result: { sessions: [{ agent: "pi" }] } })),
+      [],
+    );
   });
 });
 
 describe("sessionIdFromFileName", () => {
   it("reads the id after the last underscore", () => {
-    assert.equal(sessionIdFromFileName("2026-10-02T15-25-11-301Z_01a0fd38-2905-7368.jsonl"), "01a0fd38-2905-7368");
+    assert.equal(
+      sessionIdFromFileName("2026-10-02T15-25-11-301Z_01a0fd38-2905-7368.jsonl"),
+      "01a0fd38-2905-7368",
+    );
     assert.equal(sessionIdFromFileName("01a0fd38.jsonl"), "01a0fd38");
     assert.equal(sessionIdFromFileName("notes.txt"), null);
   });
@@ -87,7 +104,10 @@ describe("sessionIdFromFileName", () => {
 
 describe("sessionsRoot", () => {
   it("respects PI_CODING_AGENT_DIR and defaults under the home dir", () => {
-    assert.equal(sessionsRoot({ PI_CODING_AGENT_DIR: "/tmp/agent" }), join("/tmp/agent", "sessions"));
+    assert.equal(
+      sessionsRoot({ PI_CODING_AGENT_DIR: "/tmp/agent" }),
+      join("/tmp/agent", "sessions"),
+    );
     assert.ok(sessionsRoot({}).endsWith(join(".pi", "agent", "sessions")));
   });
 });
@@ -125,7 +145,10 @@ describe("titleFromEntries", () => {
   });
 
   it("returns nothing with no name and no user message", () => {
-    assert.equal(titleFromEntries([{ type: "model_change" }, { type: "session_info", name: "" }]), "");
+    assert.equal(
+      titleFromEntries([{ type: "model_change" }, { type: "session_info", name: "" }]),
+      "",
+    );
     assert.equal(titleFromEntries([]), "");
   });
 
@@ -136,7 +159,11 @@ describe("titleFromEntries", () => {
 
 describe("parseSessionTitle", () => {
   it("parses JSONL and skips malformed lines", () => {
-    const text = ["not json", JSON.stringify({ type: "model_change" }), JSON.stringify(userMessage("Recovered"))].join("\n");
+    const text = [
+      "not json",
+      JSON.stringify({ type: "model_change" }),
+      JSON.stringify(userMessage("Recovered")),
+    ].join("\n");
     assert.equal(parseSessionTitle(text), "Recovered");
     assert.equal(parseSessionTitle(""), "");
   });
@@ -159,7 +186,10 @@ describe("capTitleBytes", () => {
 describe("piSessions and buildTitlePushArgs", () => {
   it("keeps only pi rows and caps the count", () => {
     const all = [session("a"), { agent: "claude", session_id: "b" }, session("c")];
-    assert.deepEqual(piSessions(all).map((row) => row.session_id), ["a", "c"]);
+    assert.deepEqual(
+      piSessions(all).map((row) => row.session_id),
+      ["a", "c"],
+    );
     const many = Array.from({ length: MAX_SESSIONS + 5 }, (_, i) => session(`s${i}`));
     assert.equal(piSessions(many).length, MAX_SESSIONS);
     assert.equal(piSessions(many).at(-1)?.session_id, `s${MAX_SESSIONS - 1}`);
@@ -167,15 +197,29 @@ describe("piSessions and buildTitlePushArgs", () => {
 
   it("builds one push argv with the JSON rows", () => {
     const rows = [{ agent: "pi", session_id: "a", title: "Ship it" }];
-    assert.deepEqual(buildTitlePushArgs(rows), ["ui", "agent-title", "push", "--titles", JSON.stringify(rows)]);
+    assert.deepEqual(buildTitlePushArgs(rows), [
+      "ui",
+      "agent-title",
+      "push",
+      "--titles",
+      JSON.stringify(rows),
+    ]);
   });
 });
 
 describe("collectTitles fixtures", () => {
   it("titles a named and an unnamed session and skips one with no user message", () => {
     const root = makeRoot();
-    writeSession(root, "named", sessionText([{ type: "session_info", name: "auth refactor" }, userMessage("Fix it")]));
-    writeSession(root, "unnamed", sessionText([{ type: "model_change" }, userMessage("Map the auth flow")]));
+    writeSession(
+      root,
+      "named",
+      sessionText([{ type: "session_info", name: "auth refactor" }, userMessage("Fix it")]),
+    );
+    writeSession(
+      root,
+      "unnamed",
+      sessionText([{ type: "model_change" }, userMessage("Map the auth flow")]),
+    );
     writeSession(root, "empty", sessionText([{ type: "model_change" }]));
     const index = indexSessionFiles(root);
     assert.equal(index.size, 3);

@@ -17,6 +17,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { basename } from "node:path";
 
 /** Characters that cannot appear in an OSC title: C0, DEL, and C1 controls. */
+// eslint-disable-next-line no-control-regex -- these are the characters being stripped
 const TITLE_CONTROL_CHARS = /[\x00-\x1f\x7f-\x9f]/g;
 
 /** Longest prompt line kept in a title, shared with the subagent pane title. */
@@ -61,7 +62,11 @@ function messageText(content: unknown): string {
   if (!Array.isArray(content)) return "";
   const parts: string[] = [];
   for (const part of content) {
-    if (part !== null && typeof part === "object" && typeof (part as { text?: unknown }).text === "string") {
+    if (
+      part !== null &&
+      typeof part === "object" &&
+      typeof (part as { text?: unknown }).text === "string"
+    ) {
       parts.push((part as { text: string }).text);
     }
   }
@@ -100,7 +105,9 @@ export function __resetLiveTitleForTests__(): void {
  * subagent-child check reads `PI_LUVUS_NAME` the same way the rest of the
  * extension does.
  */
-export function createLiveTitleController(env: NodeJS.ProcessEnv = process.env): LiveTitleController {
+export function createLiveTitleController(
+  env: NodeJS.ProcessEnv = process.env,
+): LiveTitleController {
   /** Set once the first-prompt title is claimed for this runtime. */
   let firstPromptTitleSet = false;
 

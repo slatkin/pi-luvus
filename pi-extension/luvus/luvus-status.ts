@@ -101,7 +101,11 @@ export function piSessionId(env: NodeJS.ProcessEnv = process.env): string | null
   const file = env.PI_SESSION_FILE;
   if (!file) return null;
   const base = file.split("/").pop() ?? "";
-  const id = base.replace(/\.jsonl$/, "").split("_").pop() ?? "";
+  const id =
+    base
+      .replace(/\.jsonl$/, "")
+      .split("_")
+      .pop() ?? "";
   return id || null;
 }
 
@@ -167,7 +171,10 @@ export function createLuvusStatusReporter(
     inFlight = true;
     // A failed or timed-out call must neither throw nor wedge the queue; the
     // next report retries. `then(ok, err)` keeps the rejection handled.
-    void execAsync(env.LUVUS_BIN_PATH as string, buildReportArgs(pane, next.status, next.message)).then(
+    void execAsync(
+      env.LUVUS_BIN_PATH as string,
+      buildReportArgs(pane, next.status, next.message),
+    ).then(
       () => finishAsync(pane),
       () => finishAsync(pane),
     );
@@ -273,8 +280,9 @@ export function createLuvusStatusReporter(
       // pi injects PI_SESSION_FILE only into spawned children, not into its own
       // process env — read the live id from the session manager.
       const id =
-        (ctx as { sessionManager?: { getSessionId?: () => string | null } } | undefined)?.sessionManager?.getSessionId?.() ??
-        piSessionId(env);
+        (
+          ctx as { sessionManager?: { getSessionId?: () => string | null } } | undefined
+        )?.sessionManager?.getSessionId?.() ?? piSessionId(env);
       bindSession(id || null);
       report("idle");
     });

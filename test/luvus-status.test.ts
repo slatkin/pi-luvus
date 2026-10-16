@@ -12,7 +12,12 @@ import {
 } from "../pi-extension/luvus/luvus-status.ts";
 import { execLuvusCliAsync, __setLuvusExecForTests__ } from "../pi-extension/luvus/luvus.ts";
 
-const ENV = { LUVUS_ENV: "1", LUVUS_BIN_PATH: "/bin/luvus", LUVUS_PANE_ID: "7", PI_SESSION_FILE: "/tmp/2026-10-02T15-25-11-301Z_abc.jsonl" };
+const ENV = {
+  LUVUS_ENV: "1",
+  LUVUS_BIN_PATH: "/bin/luvus",
+  LUVUS_PANE_ID: "7",
+  PI_SESSION_FILE: "/tmp/2026-10-02T15-25-11-301Z_abc.jsonl",
+};
 const CTX = { sessionManager: { getSessionId: () => "sess-1" } };
 /** Renewal fires at TTL / 2. */
 const RENEWAL_MS = (LUVUS_STATUS_TTL_S / 2) * 1000;
@@ -24,9 +29,11 @@ function makePi() {
   const handlers = new Map<string, Array<(a?: unknown, b?: unknown) => void>>();
   return {
     handlers,
-    pi: { on: (event: string, fn: (a?: unknown, b?: unknown) => void) => {
-      handlers.set(event, [...(handlers.get(event) ?? []), fn]);
-    } },
+    pi: {
+      on: (event: string, fn: (a?: unknown, b?: unknown) => void) => {
+        handlers.set(event, [...(handlers.get(event) ?? []), fn]);
+      },
+    },
     fire(event: string, ctx?: unknown, eventData?: unknown) {
       for (const fn of handlers.get(event) ?? []) fn(eventData, ctx);
     },
@@ -283,7 +290,10 @@ describe("luvus-status reporter", () => {
 
   it("binds the pi session id from PI_SESSION_FILE", () => {
     assert.equal(
-      piSessionId({ PI_SESSION_FILE: "/home/x/.pi/agent/sessions/--home--/2026-10-02T15-25-11-301Z_01a0fd38-2905-7368-b9f5-a30c7bd41580.jsonl" }),
+      piSessionId({
+        PI_SESSION_FILE:
+          "/home/x/.pi/agent/sessions/--home--/2026-10-02T15-25-11-301Z_01a0fd38-2905-7368-b9f5-a30c7bd41580.jsonl",
+      }),
       "01a0fd38-2905-7368-b9f5-a30c7bd41580",
     );
     assert.equal(piSessionId({}), null);

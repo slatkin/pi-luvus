@@ -15,7 +15,16 @@ for (const key of Object.keys(process.env)) {
     delete process.env[key];
   }
 }
-import { mkdtempSync, writeFileSync, readFileSync, appendFileSync, mkdirSync, rmSync, existsSync, readdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  readFileSync,
+  appendFileSync,
+  mkdirSync,
+  rmSync,
+  existsSync,
+  readdirSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -43,10 +52,7 @@ import {
   __setLuvusExecForTests__,
 } from "../pi-extension/luvus/luvus.ts";
 import { __setUhpSpawnForTests__ } from "../pi-extension/luvus/uhp-events.ts";
-import {
-  paneCommandLine,
-  readLaunchSpec,
-} from "../pi-extension/luvus/launch.ts";
+import { paneCommandLine, readLaunchSpec } from "../pi-extension/luvus/launch.ts";
 import {
   advanceStatusState,
   capStatusLines,
@@ -401,7 +407,12 @@ describe("session.ts", () => {
 
   describe("seedSubagentSessionFile", () => {
     it("creates a lineage-only child session with parent linkage and no copied turns", () => {
-      const parentFile = createSessionFile(dir, [SESSION_HEADER, MODEL_CHANGE, USER_MSG, ASSISTANT_MSG]);
+      const parentFile = createSessionFile(dir, [
+        SESSION_HEADER,
+        MODEL_CHANGE,
+        USER_MSG,
+        ASSISTANT_MSG,
+      ]);
       const childFile = join(dir, "lineage-child.jsonl");
 
       seedSubagentSessionFile({
@@ -421,7 +432,12 @@ describe("session.ts", () => {
     });
 
     it("creates a forked child session with copied context before the triggering user turn", () => {
-      const parentFile = createSessionFile(dir, [SESSION_HEADER, MODEL_CHANGE, USER_MSG, ASSISTANT_MSG]);
+      const parentFile = createSessionFile(dir, [
+        SESSION_HEADER,
+        MODEL_CHANGE,
+        USER_MSG,
+        ASSISTANT_MSG,
+      ]);
       const childFile = join(dir, "fork-child.jsonl");
 
       seedSubagentSessionFile({
@@ -440,11 +456,16 @@ describe("session.ts", () => {
       assert.equal(entries[0].parentSession, parentFile);
       assert.equal(entries[0].cwd, "/tmp/fork-child-cwd");
       assert.equal(entries[1].type, "model_change");
-      assert.equal(entries.some((entry) => entry.type === "session" && entry.parentSession !== parentFile), false);
-      assert.equal(entries.some((entry) => entry.type === "message"), false);
+      assert.equal(
+        entries.some((entry) => entry.type === "session" && entry.parentSession !== parentFile),
+        false,
+      );
+      assert.equal(
+        entries.some((entry) => entry.type === "message"),
+        false,
+      );
     });
   });
-
 });
 
 describe("subagent session dir naming", () => {
@@ -545,10 +566,7 @@ describe("status.ts", () => {
   it("loads the shared example when local config is absent", () => {
     withTempDir((dir) => {
       const examplePath = join(dir, "config.json.example");
-      writeFileSync(
-        examplePath,
-        JSON.stringify({ status: { enabled: true } }, null, 2) + "\n",
-      );
+      writeFileSync(examplePath, JSON.stringify({ status: { enabled: true } }, null, 2) + "\n");
 
       const config = loadStatusConfig(join(dir, "config.json"), examplePath);
 
@@ -598,10 +616,7 @@ describe("status.ts", () => {
       const configPath = join(dir, "config.json");
       const examplePath = join(dir, "config.json.example");
       writeFileSync(configPath, "{\n");
-      writeFileSync(
-        examplePath,
-        JSON.stringify({ status: { enabled: true } }, null, 2) + "\n",
-      );
+      writeFileSync(examplePath, JSON.stringify({ status: { enabled: true } }, null, 2) + "\n");
 
       assert.throws(
         () => loadStatusConfig(configPath, examplePath),
@@ -694,10 +709,7 @@ describe("status.ts", () => {
       const previous = process.env.PI_CODING_AGENT_DIR;
       process.env.PI_CODING_AGENT_DIR = dir;
       try {
-        assert.equal(
-          getDefaultConfigPath(),
-          join(dir, "extensions", "pi-luvus", "config.json"),
-        );
+        assert.equal(getDefaultConfigPath(), join(dir, "extensions", "pi-luvus", "config.json"));
       } finally {
         restoreEnvVar("PI_CODING_AGENT_DIR", previous);
       }
@@ -716,17 +728,21 @@ describe("status.ts", () => {
 
   it("classifies active snapshots without aging into stalled", () => {
     let state = createStatusState({ source: "pi", startTimeMs: 0 });
-    state = observeStatus(state, {
-      snapshot: "present",
-      updatedAt: 5_000,
-      sequence: 1,
-      phase: "active",
-      active: true,
-      activeScope: "tool",
-      activeSince: 5_000,
-      activityLabel: "bash",
-      latestEvent: "tool_execution_start",
-    }, 5_000);
+    state = observeStatus(
+      state,
+      {
+        snapshot: "present",
+        updatedAt: 5_000,
+        sequence: 1,
+        phase: "active",
+        active: true,
+        activeScope: "tool",
+        activeSince: 5_000,
+        activityLabel: "bash",
+        latestEvent: "tool_execution_start",
+      },
+      5_000,
+    );
 
     const snapshot = classifyStatus(state, 240_000);
     assert.equal(snapshot.kind, "active");
@@ -736,14 +752,18 @@ describe("status.ts", () => {
 
   it("classifies waiting snapshots as healthy idle without becoming stalled", () => {
     let state = createStatusState({ source: "pi", startTimeMs: 0 });
-    state = observeStatus(state, {
-      snapshot: "present",
-      updatedAt: 10_000,
-      sequence: 1,
-      phase: "waiting",
-      waitingSince: 10_000,
-      latestEvent: "agent_end",
-    }, 10_000);
+    state = observeStatus(
+      state,
+      {
+        snapshot: "present",
+        updatedAt: 10_000,
+        sequence: 1,
+        phase: "waiting",
+        waitingSince: 10_000,
+        latestEvent: "agent_end",
+      },
+      10_000,
+    );
 
     const snapshot = classifyStatus(state, 240_000);
     assert.equal(snapshot.kind, "waiting");
@@ -766,14 +786,18 @@ describe("status.ts", () => {
     assert.equal(advanced.transition, "stalled");
     assert.equal(advanced.snapshot.kind, "stalled");
 
-    state = observeStatus(advanced.nextState, {
-      snapshot: "present",
-      updatedAt: 96_000,
-      sequence: 1,
-      phase: "waiting",
-      waitingSince: 96_000,
-      latestEvent: "agent_end",
-    }, 96_000);
+    state = observeStatus(
+      advanced.nextState,
+      {
+        snapshot: "present",
+        updatedAt: 96_000,
+        sequence: 1,
+        phase: "waiting",
+        waitingSince: 96_000,
+        latestEvent: "agent_end",
+      },
+      96_000,
+    );
     advanced = advanceStatusState(state, 97_000);
     assert.equal(advanced.transition, "recovered");
     assert.equal(advanced.snapshot.kind, "waiting");
@@ -781,15 +805,19 @@ describe("status.ts", () => {
 
   it("keeps the last healthy kind during transient snapshot loss", () => {
     let state = createStatusState({ source: "pi", startTimeMs: 0 });
-    state = observeStatus(state, {
-      snapshot: "present",
-      updatedAt: 5_000,
-      sequence: 1,
-      phase: "active",
-      active: true,
-      activeScope: "streaming",
-      activeSince: 5_000,
-    }, 5_000);
+    state = observeStatus(
+      state,
+      {
+        snapshot: "present",
+        updatedAt: 5_000,
+        sequence: 1,
+        phase: "active",
+        active: true,
+        activeScope: "streaming",
+        activeSince: 5_000,
+      },
+      5_000,
+    );
     state = advanceStatusState(state, 6_000).nextState;
     state = observeStatus(state, { snapshot: "missing" }, 10_000);
 
@@ -801,16 +829,20 @@ describe("status.ts", () => {
   it("forces an active state to waiting after interrupt", () => {
     const now = 20_000;
     let state = createStatusState({ source: "pi", startTimeMs: 0 });
-    state = observeStatus(state, {
-      snapshot: "present",
-      updatedAt: 5_000,
-      sequence: 1,
-      phase: "active",
-      active: true,
-      activeScope: "tool",
-      activeSince: 5_000,
-      activityLabel: "bash",
-    }, 5_000);
+    state = observeStatus(
+      state,
+      {
+        snapshot: "present",
+        updatedAt: 5_000,
+        sequence: 1,
+        phase: "active",
+        active: true,
+        activeScope: "tool",
+        activeSince: 5_000,
+        activityLabel: "bash",
+      },
+      5_000,
+    );
 
     assert.equal(classifyStatus(state, now).kind, "active");
 
@@ -825,25 +857,33 @@ describe("status.ts", () => {
 
   it("orders same-millisecond snapshots by sequence", () => {
     let state = createStatusState({ source: "pi", startTimeMs: 0 });
-    state = observeStatus(state, {
-      snapshot: "present",
-      updatedAt: 10_000,
-      sequence: 2,
-      phase: "active",
-      active: true,
-      activeScope: "tool",
-      activeSince: 10_000,
-      activityLabel: "bash",
-    }, 10_000);
+    state = observeStatus(
+      state,
+      {
+        snapshot: "present",
+        updatedAt: 10_000,
+        sequence: 2,
+        phase: "active",
+        active: true,
+        activeScope: "tool",
+        activeSince: 10_000,
+        activityLabel: "bash",
+      },
+      10_000,
+    );
 
-    state = observeStatus(state, {
-      snapshot: "present",
-      updatedAt: 10_000,
-      sequence: 3,
-      phase: "waiting",
-      waitingSince: 10_000,
-      latestEvent: "agent_end",
-    }, 10_001);
+    state = observeStatus(
+      state,
+      {
+        snapshot: "present",
+        updatedAt: 10_000,
+        sequence: 3,
+        phase: "waiting",
+        waitingSince: 10_000,
+        latestEvent: "agent_end",
+      },
+      10_001,
+    );
 
     const snapshot = classifyStatus(state, 11_000);
     assert.equal(snapshot.kind, "waiting");
@@ -852,29 +892,37 @@ describe("status.ts", () => {
 
   it("recovers from a transient snapshot read failure with the same valid snapshot", () => {
     let state = createStatusState({ source: "pi", startTimeMs: 0 });
-    state = observeStatus(state, {
-      snapshot: "present",
-      updatedAt: 5_000,
-      sequence: 2,
-      phase: "active",
-      active: true,
-      activeScope: "tool",
-      activeSince: 5_000,
-      activityLabel: "bash",
-    }, 5_000);
+    state = observeStatus(
+      state,
+      {
+        snapshot: "present",
+        updatedAt: 5_000,
+        sequence: 2,
+        phase: "active",
+        active: true,
+        activeScope: "tool",
+        activeSince: 5_000,
+        activityLabel: "bash",
+      },
+      5_000,
+    );
     state = observeStatus(state, { snapshot: "missing" }, 10_000);
     assert.equal(classifyStatus(state, 10_000).statusLabel, null);
 
-    state = observeStatus(state, {
-      snapshot: "present",
-      updatedAt: 5_000,
-      sequence: 2,
-      phase: "active",
-      active: true,
-      activeScope: "tool",
-      activeSince: 5_000,
-      activityLabel: "bash",
-    }, 11_000);
+    state = observeStatus(
+      state,
+      {
+        snapshot: "present",
+        updatedAt: 5_000,
+        sequence: 2,
+        phase: "active",
+        active: true,
+        activeScope: "tool",
+        activeSince: 5_000,
+        activityLabel: "bash",
+      },
+      11_000,
+    );
 
     const snapshot = classifyStatus(state, 11_000);
     assert.equal(snapshot.kind, "active");
@@ -883,56 +931,72 @@ describe("status.ts", () => {
 
   it("ignores stale and exact old snapshots after interrupt and accepts newer snapshots", () => {
     let state = createStatusState({ source: "pi", startTimeMs: 0 });
-    state = observeStatus(state, {
-      snapshot: "present",
-      updatedAt: 5_000,
-      sequence: 1,
-      phase: "active",
-      active: true,
-      activeScope: "tool",
-      activeSince: 5_000,
-      activityLabel: "bash",
-    }, 5_000);
+    state = observeStatus(
+      state,
+      {
+        snapshot: "present",
+        updatedAt: 5_000,
+        sequence: 1,
+        phase: "active",
+        active: true,
+        activeScope: "tool",
+        activeSince: 5_000,
+        activityLabel: "bash",
+      },
+      5_000,
+    );
     state = forceStatusAfterInterrupt(state, 20_000);
 
-    const stale = observeStatus(state, {
-      snapshot: "present",
-      updatedAt: 5_000,
-      sequence: 1,
-      phase: "active",
-      active: true,
-      activeScope: "tool",
-      activeSince: 5_000,
-      activityLabel: "bash",
-    }, 21_000);
+    const stale = observeStatus(
+      state,
+      {
+        snapshot: "present",
+        updatedAt: 5_000,
+        sequence: 1,
+        phase: "active",
+        active: true,
+        activeScope: "tool",
+        activeSince: 5_000,
+        activityLabel: "bash",
+      },
+      21_000,
+    );
     let snapshot = classifyStatus(stale, 21_000);
     assert.equal(snapshot.kind, "waiting");
     assert.equal(snapshot.activityLabel, "interrupted");
 
-    const sameTimestamp = observeStatus(stale, {
-      snapshot: "present",
-      updatedAt: 20_000,
-      sequence: 1,
-      phase: "active",
-      active: true,
-      activeScope: "tool",
-      activeSince: 20_000,
-      activityLabel: "bash",
-    }, 22_000);
+    const sameTimestamp = observeStatus(
+      stale,
+      {
+        snapshot: "present",
+        updatedAt: 20_000,
+        sequence: 1,
+        phase: "active",
+        active: true,
+        activeScope: "tool",
+        activeSince: 20_000,
+        activityLabel: "bash",
+      },
+      22_000,
+    );
     snapshot = classifyStatus(sameTimestamp, 22_000);
     assert.equal(snapshot.kind, "waiting");
     assert.equal(snapshot.activityLabel, "interrupted");
 
-    const resumed = observeStatus(sameTimestamp, {
-      snapshot: "present",
-      sequence: 2,
-      updatedAt: 25_000,
-      phase: "active",
-      active: true,
-      activeScope: "streaming",
-      activeSince: 25_000,
-      activityLabel: "streaming",
-    }, 25_000);
+    const resumed = observeStatus(
+      sameTimestamp,
+      {
+        snapshot: "present",
+        sequence: 2,
+        updatedAt: 25_000,
+        phase: "active",
+        active: true,
+        activeScope: "streaming",
+        activeSince: 25_000,
+        activityLabel: "streaming",
+      },
+      25_000,
+    );
     snapshot = classifyStatus(resumed, 25_000);
     assert.equal(snapshot.kind, "active");
     assert.equal(resumed.activeScope, "streaming");
@@ -960,7 +1024,11 @@ describe("status.ts", () => {
       299_000,
     );
     const line = formatStatusLine(longName, classifyStatus(stalledState, 240_000));
-    const recovered = formatTransitionLine(longName, classifyStatus(activeState, 300_000), "recovered");
+    const recovered = formatTransitionLine(
+      longName,
+      classifyStatus(activeState, 300_000),
+      "recovered",
+    );
 
     assert.doesNotMatch(line, /\n/);
     assert.doesNotMatch(recovered, /\n/);
@@ -971,7 +1039,13 @@ describe("status.ts", () => {
   it("caps visible status lines and reports overflow consistently", () => {
     const waitingState = observeStatus(
       createStatusState({ source: "pi", startTimeMs: 0 }),
-      { snapshot: "present", updatedAt: 180_000, sequence: 1, phase: "waiting", waitingSince: 180_000 },
+      {
+        snapshot: "present",
+        updatedAt: 180_000,
+        sequence: 1,
+        phase: "waiting",
+        waitingSince: 180_000,
+      },
       180_000,
     );
     const activeState = observeStatus(
@@ -989,8 +1063,18 @@ describe("status.ts", () => {
       419_000,
     );
     const waitingLine = formatStatusLine("Worker", classifyStatus(waitingState, 300_000));
-    const recoveredLine = formatTransitionLine("Worker", classifyStatus(activeState, 420_000), "recovered");
-    const lines = [waitingLine, recoveredLine, "Scout running 2m.", "Reviewer running 4m.", "Helper running 6m."];
+    const recoveredLine = formatTransitionLine(
+      "Worker",
+      classifyStatus(activeState, 420_000),
+      "recovered",
+    );
+    const lines = [
+      waitingLine,
+      recoveredLine,
+      "Scout running 2m.",
+      "Reviewer running 4m.",
+      "Helper running 6m.",
+    ];
     const capped = capStatusLines(lines, 3);
     const aggregate = formatStatusAggregate(lines, 3);
 
@@ -1082,10 +1166,9 @@ describe("subagent discovery", () => {
       writeAgentFile(
         projectAgentsDir,
         "interactive-unset-test-agent",
-        [
-          "name: interactive-unset-test-agent",
-          "model: anthropic/test-interactive-unset",
-        ].join("\n"),
+        ["name: interactive-unset-test-agent", "model: anthropic/test-interactive-unset"].join(
+          "\n",
+        ),
       );
 
       const loaded = testApi.loadAgentDefaults("interactive-unset-test-agent");
@@ -1104,15 +1187,9 @@ describe("subagent discovery", () => {
       testApi.resolveEffectiveInteractive({ name: "A", task: "T" }, { autoExit: false }),
       true,
     );
-    assert.equal(
-      testApi.resolveEffectiveInteractive({ name: "A", task: "T" }, {}),
-      true,
-    );
+    assert.equal(testApi.resolveEffectiveInteractive({ name: "A", task: "T" }, {}), true);
     // Bare spawn with no agent defs (e.g. a forked spawn) is interactive by default.
-    assert.equal(
-      testApi.resolveEffectiveInteractive({ name: "A", task: "T" }, null),
-      true,
-    );
+    assert.equal(testApi.resolveEffectiveInteractive({ name: "A", task: "T" }, null), true);
   });
 
   it("resolveEffectiveInteractive honors explicit frontmatter over the auto-exit default", () => {
@@ -1126,10 +1203,7 @@ describe("subagent discovery", () => {
     );
     // Non-auto-exit agent that opts back into stall pings.
     assert.equal(
-      testApi.resolveEffectiveInteractive(
-        { name: "A", task: "T" },
-        { interactive: false },
-      ),
+      testApi.resolveEffectiveInteractive({ name: "A", task: "T" }, { interactive: false }),
       false,
     );
   });
@@ -1184,7 +1258,10 @@ describe("subagent discovery", () => {
   it("resolves session mode with fork override precedence", () => {
     assert.equal(testApi.resolveEffectiveSessionMode({ name: "A", task: "T" }, null), "standalone");
     assert.equal(
-      testApi.resolveEffectiveSessionMode({ name: "A", task: "T" }, { sessionMode: "lineage-only" }),
+      testApi.resolveEffectiveSessionMode(
+        { name: "A", task: "T" },
+        { sessionMode: "lineage-only" },
+      ),
       "lineage-only",
     );
     assert.equal(
@@ -1243,8 +1320,7 @@ describe("subagent discovery", () => {
   });
 
   it("buildSubagentToolAllowlist falls back to the default tools for a role without tools", () => {
-    const expected =
-      "read,bash,edit,write,grep,find,ls,caller_ping,luvus_done,luvus_message";
+    const expected = "read,bash,edit,write,grep,find,ls,caller_ping,luvus_done,luvus_message";
     assert.equal(DEFAULT_SUBAGENT_TOOLS, "read,bash,edit,write,grep,find,ls");
 
     // The pi parent calls this same builder with the loaded role's `tools` value.
@@ -1299,8 +1375,16 @@ describe("subagent discovery", () => {
       const projectFile = join(projectAgentsDir, "search-order-test-agent.md");
       const globalFile = join(globalAgentsDir, "search-order-test-agent.md");
 
-      writeAgentFile(projectAgentsDir, "search-order-test-agent", frontmatter("anthropic/test-project"));
-      writeAgentFile(globalAgentsDir, "search-order-test-agent", frontmatter("anthropic/test-global"));
+      writeAgentFile(
+        projectAgentsDir,
+        "search-order-test-agent",
+        frontmatter("anthropic/test-project"),
+      );
+      writeAgentFile(
+        globalAgentsDir,
+        "search-order-test-agent",
+        frontmatter("anthropic/test-global"),
+      );
 
       const paths = agentDefinitionPaths("search-order-test-agent", projectDir);
       assert.deepEqual(paths, [
@@ -1309,14 +1393,20 @@ describe("subagent discovery", () => {
         join(getBundledAgentsDir(), "search-order-test-agent.md"),
       ]);
 
-      assert.equal(testApi.loadAgentDefaults("search-order-test-agent")?.model, "anthropic/test-project");
+      assert.equal(
+        testApi.loadAgentDefaults("search-order-test-agent")?.model,
+        "anthropic/test-project",
+      );
       assert.equal(
         testApi.loadAgentDefaults("search-order-test-agent", projectDir)?.model,
         "anthropic/test-project",
       );
 
       rmSync(projectFile);
-      assert.equal(testApi.loadAgentDefaults("search-order-test-agent")?.model, "anthropic/test-global");
+      assert.equal(
+        testApi.loadAgentDefaults("search-order-test-agent")?.model,
+        "anthropic/test-global",
+      );
 
       rmSync(globalFile);
       assert.equal(testApi.loadAgentDefaults("search-order-test-agent"), null);
@@ -1328,21 +1418,33 @@ describe("subagent discovery", () => {
 
   it("buildPiPromptArgs inserts separator for artifact-backed launches with skills", () => {
     assert.deepEqual(
-      testApi.buildPiPromptArgs({ effectiveSkills: "review,lint", taskDelivery: "artifact", taskArg: "@artifact.md" }),
+      testApi.buildPiPromptArgs({
+        effectiveSkills: "review,lint",
+        taskDelivery: "artifact",
+        taskArg: "@artifact.md",
+      }),
       ["", "/skill:review", "/skill:lint", "@artifact.md"],
     );
   });
 
   it("buildPiPromptArgs omits separator for artifact-backed launches without skills", () => {
     assert.deepEqual(
-      testApi.buildPiPromptArgs({ effectiveSkills: undefined, taskDelivery: "artifact", taskArg: "@artifact.md" }),
+      testApi.buildPiPromptArgs({
+        effectiveSkills: undefined,
+        taskDelivery: "artifact",
+        taskArg: "@artifact.md",
+      }),
       ["@artifact.md"],
     );
   });
 
   it("buildPiPromptArgs omits separator for direct launches with skills", () => {
     assert.deepEqual(
-      testApi.buildPiPromptArgs({ effectiveSkills: "review", taskDelivery: "direct", taskArg: "do the task" }),
+      testApi.buildPiPromptArgs({
+        effectiveSkills: "review",
+        taskDelivery: "direct",
+        taskArg: "do the task",
+      }),
       ["/skill:review", "do the task"],
     );
   });
@@ -1396,7 +1498,10 @@ describe("subagent discovery", () => {
       const result = await tool.execute();
       const agents = result.details?.agents ?? [];
 
-      assert.equal(agents.some((agent: any) => agent.name === "hidden-discovery-test-agent"), false);
+      assert.equal(
+        agents.some((agent: any) => agent.name === "hidden-discovery-test-agent"),
+        false,
+      );
       assert.doesNotMatch(result.content[0].text, /hidden-discovery-test-agent/);
 
       const loaded = testApi.loadAgentDefaults("hidden-discovery-test-agent");
@@ -1440,7 +1545,10 @@ describe("subagent discovery", () => {
       const result = await tool.execute();
       const agents = result.details?.agents ?? [];
 
-      assert.equal(agents.some((agent: any) => agent.name === "shadowed-discovery-test-agent"), false);
+      assert.equal(
+        agents.some((agent: any) => agent.name === "shadowed-discovery-test-agent"),
+        false,
+      );
       assert.doesNotMatch(result.content[0].text, /shadowed-discovery-test-agent/);
 
       const loaded = testApi.loadAgentDefaults("shadowed-discovery-test-agent");
@@ -1569,14 +1677,22 @@ describe("luvus-done nudge", () => {
     return { handlers, tools, sentMessages, restoreEnv };
   }
 
-  const fire = (handlers: Record<string, Array<(event?: any, ctx?: any) => void>>, name: string, event?: any, ctx?: any) => {
+  const fire = (
+    handlers: Record<string, Array<(event?: any, ctx?: any) => void>>,
+    name: string,
+    event?: any,
+    ctx?: any,
+  ) => {
     for (const handler of handlers[name] ?? []) handler(event, ctx);
   };
 
   it("decides to nudge only on a normal model stop", () => {
     assert.equal(shouldScheduleAgentEndNudge([{ role: "assistant", stopReason: "stop" }]), true);
     assert.equal(shouldScheduleAgentEndNudge([{ role: "assistant", stopReason: "error" }]), false);
-    assert.equal(shouldScheduleAgentEndNudge([{ role: "assistant", stopReason: "aborted" }]), false);
+    assert.equal(
+      shouldScheduleAgentEndNudge([{ role: "assistant", stopReason: "aborted" }]),
+      false,
+    );
     assert.equal(shouldScheduleAgentEndNudge([{ role: "assistant", stopReason: "length" }]), false);
     assert.equal(shouldScheduleAgentEndNudge(undefined), false);
   });
@@ -1591,7 +1707,12 @@ describe("luvus-done nudge", () => {
       try {
         fire(handlers, "agent_start");
         let shutdownCalled = false;
-        fire(handlers, "agent_end", { messages: [{ role: "assistant", stopReason: "stop" }] }, { shutdown: () => (shutdownCalled = true) });
+        fire(
+          handlers,
+          "agent_end",
+          { messages: [{ role: "assistant", stopReason: "stop" }] },
+          { shutdown: () => (shutdownCalled = true) },
+        );
 
         assert.equal(shutdownCalled, false);
         assert.equal(existsSync(`${sessionFile}.exit`), false);
@@ -1612,7 +1733,12 @@ describe("luvus-done nudge", () => {
       try {
         fire(handlers, "agent_start");
         let shutdownCalled = false;
-        fire(handlers, "agent_end", { messages: [{ role: "assistant", stopReason: "stop" }] }, { shutdown: () => (shutdownCalled = true) });
+        fire(
+          handlers,
+          "agent_end",
+          { messages: [{ role: "assistant", stopReason: "stop" }] },
+          { shutdown: () => (shutdownCalled = true) },
+        );
 
         assert.equal(shutdownCalled, true);
         assert.deepEqual(JSON.parse(readFileSync(`${sessionFile}.exit`, "utf8")), { type: "done" });
@@ -1633,7 +1759,12 @@ describe("luvus-done nudge", () => {
       try {
         fire(handlers, "agent_start");
         let shutdownCalled = false;
-        fire(handlers, "agent_end", { messages: [{ role: "assistant", stopReason: "aborted" }] }, { shutdown: () => (shutdownCalled = true) });
+        fire(
+          handlers,
+          "agent_end",
+          { messages: [{ role: "assistant", stopReason: "aborted" }] },
+          { shutdown: () => (shutdownCalled = true) },
+        );
 
         assert.equal(shutdownCalled, false);
         assert.equal(existsSync(`${sessionFile}.exit`), false);
@@ -1655,7 +1786,12 @@ describe("luvus-done nudge", () => {
         fire(handlers, "agent_start");
         fire(handlers, "input");
         let shutdownCalled = false;
-        fire(handlers, "agent_end", { messages: [{ role: "assistant", stopReason: "stop" }] }, { shutdown: () => (shutdownCalled = true) });
+        fire(
+          handlers,
+          "agent_end",
+          { messages: [{ role: "assistant", stopReason: "stop" }] },
+          { shutdown: () => (shutdownCalled = true) },
+        );
 
         assert.equal(shutdownCalled, false);
         assert.equal(existsSync(`${sessionFile}.exit`), false);
@@ -1675,7 +1811,9 @@ describe("luvus-done nudge", () => {
         fire(
           handlers,
           "agent_end",
-          { messages: [{ role: "assistant", stopReason: "error", errorMessage: "529 overloaded" }] },
+          {
+            messages: [{ role: "assistant", stopReason: "error", errorMessage: "529 overloaded" }],
+          },
           { shutdown: () => (shutdownCalled = true) },
         );
 
@@ -1705,7 +1843,12 @@ describe("luvus-done nudge", () => {
         assert.equal(existsSync(`${sessionFile}.exit`), true);
 
         fire(handlers, "agent_start");
-        fire(handlers, "agent_end", { messages: [{ role: "assistant", stopReason: "stop" }] }, { shutdown() {} });
+        fire(
+          handlers,
+          "agent_end",
+          { messages: [{ role: "assistant", stopReason: "stop" }] },
+          { shutdown() {} },
+        );
         await new Promise((resolve) => setTimeout(resolve, 1100));
         assert.equal(sentMessages.length, 0);
       } finally {
@@ -1725,7 +1868,12 @@ describe("luvus-done nudge", () => {
         });
         try {
           fire(handlers, "agent_start");
-          fire(handlers, "agent_end", { messages: [{ role: "assistant", stopReason: "stop" }] }, { shutdown() {} });
+          fire(
+            handlers,
+            "agent_end",
+            { messages: [{ role: "assistant", stopReason: "stop" }] },
+            { shutdown() {} },
+          );
 
           assert.equal(sentMessages.length, 0);
           mock.timers.tick(999);
@@ -1750,12 +1898,22 @@ describe("luvus-done nudge", () => {
       });
       try {
         fire(handlers, "agent_start");
-        fire(handlers, "agent_end", { messages: [{ role: "assistant", stopReason: "stop" }] }, { shutdown() {} });
+        fire(
+          handlers,
+          "agent_end",
+          { messages: [{ role: "assistant", stopReason: "stop" }] },
+          { shutdown() {} },
+        );
         fire(handlers, "input");
         await new Promise((resolve) => setTimeout(resolve, 1100));
         assert.equal(sentMessages.length, 0);
 
-        fire(handlers, "agent_end", { messages: [{ role: "assistant", stopReason: "stop" }] }, { shutdown() {} });
+        fire(
+          handlers,
+          "agent_end",
+          { messages: [{ role: "assistant", stopReason: "stop" }] },
+          { shutdown() {} },
+        );
         fire(handlers, "before_agent_start");
         await new Promise((resolve) => setTimeout(resolve, 1100));
         assert.equal(sentMessages.length, 0);
@@ -1773,7 +1931,12 @@ describe("luvus-done nudge", () => {
       try {
         fire(handlers, "agent_start");
         fire(handlers, "input");
-        fire(handlers, "agent_end", { messages: [{ role: "assistant", stopReason: "stop" }] }, { shutdown() {} });
+        fire(
+          handlers,
+          "agent_end",
+          { messages: [{ role: "assistant", stopReason: "stop" }] },
+          { shutdown() {} },
+        );
         await new Promise((resolve) => setTimeout(resolve, 1100));
         assert.equal(sentMessages.length, 1);
       } finally {
@@ -1841,7 +2004,9 @@ describe("luvus-done nudge", () => {
       try {
         const pingTool = tools.find((t) => t.name === "caller_ping");
         assert.ok(pingTool, "expected caller_ping to be registered");
-        await pingTool.execute("t1", { message: "which target?" }, undefined, undefined, { shutdown() {} });
+        await pingTool.execute("t1", { message: "which target?" }, undefined, undefined, {
+          shutdown() {},
+        });
 
         assert.deepEqual(JSON.parse(readFileSync(`${sessionFile}.exit`, "utf8")), {
           type: "ping",
@@ -1874,7 +2039,12 @@ describe("luvus-done nudge", () => {
       });
       try {
         fire(handlers, "agent_start");
-        fire(handlers, "agent_end", { messages: [{ role: "assistant", stopReason: "stop" }] }, { shutdown() {} });
+        fire(
+          handlers,
+          "agent_end",
+          { messages: [{ role: "assistant", stopReason: "stop" }] },
+          { shutdown() {} },
+        );
 
         assert.deepEqual(JSON.parse(readFileSync(`${sessionFile}.exit`, "utf8")), { type: "done" });
         const lines = readFileSync(log, "utf8").trim().split("\n");
@@ -1903,7 +2073,9 @@ describe("luvus-done nudge", () => {
         fire(
           handlers,
           "agent_end",
-          { messages: [{ role: "assistant", stopReason: "error", errorMessage: "529 overloaded" }] },
+          {
+            messages: [{ role: "assistant", stopReason: "error", errorMessage: "529 overloaded" }],
+          },
           { shutdown() {} },
         );
 
@@ -1940,7 +2112,9 @@ describe("luvus-done nudge", () => {
         const doneTool = tools.find((t) => t.name === "luvus_done");
         assert.ok(doneTool, "expected luvus_done to be registered");
         let shutdownCalled = false;
-        await doneTool.execute("t1", {}, undefined, undefined, { shutdown: () => (shutdownCalled = true) });
+        await doneTool.execute("t1", {}, undefined, undefined, {
+          shutdown: () => (shutdownCalled = true),
+        });
 
         assert.equal(shutdownCalled, true);
         assert.deepEqual(JSON.parse(readFileSync(`${sessionFile}.exit`, "utf8")), { type: "done" });
@@ -1981,14 +2155,11 @@ describe("luvus.ts interpretExitSidecar", () => {
   const { interpretExitSidecar } = __pollForExitTest__;
 
   it("decodes ping payloads", () => {
-    assert.deepEqual(
-      interpretExitSidecar({ type: "ping", name: "Worker", message: "need help" }),
-      {
-        reason: "ping",
-        exitCode: 0,
-        ping: { name: "Worker", message: "need help" },
-      },
-    );
+    assert.deepEqual(interpretExitSidecar({ type: "ping", name: "Worker", message: "need help" }), {
+      reason: "ping",
+      exitCode: 0,
+      ping: { name: "Worker", message: "need help" },
+    });
   });
 
   it("decodes done payloads", () => {
@@ -2029,7 +2200,11 @@ describe("luvus.ts interpretExitSidecar", () => {
   });
 
   it("falls back to a placeholder when the handoff payload has no usable message", () => {
-    for (const payload of [{ type: "handoff" }, { type: "handoff", message: "   " }, { type: "handoff", message: 42 }]) {
+    for (const payload of [
+      { type: "handoff" },
+      { type: "handoff", message: "   " },
+      { type: "handoff", message: 42 },
+    ]) {
       const result = interpretExitSidecar(payload);
       assert.equal(result.reason, "handoff");
       assert.equal(result.exitCode, 0);
@@ -2171,7 +2346,12 @@ describe("tool registration", () => {
 });
 
 describe("pi-parent launch", () => {
-  const SUBAGENTS_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "pi-extension", "luvus");
+  const SUBAGENTS_DIR = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "pi-extension",
+    "luvus",
+  );
   const CLI = join(SUBAGENTS_DIR, "cli.ts");
 
   function flagValue(args: string[], flag: string): string | undefined {
@@ -2263,7 +2443,10 @@ describe("pi-parent launch", () => {
       // The spec is written where the old shell script went, and it is no script.
       const scriptsDir = join(dir, "sessions", "artifacts", "sess-001", "luvus-scripts");
       const scripts = readdirSync(scriptsDir);
-      assert.deepEqual(scripts.filter((file) => file.endsWith(".sh")), []);
+      assert.deepEqual(
+        scripts.filter((file) => file.endsWith(".sh")),
+        [],
+      );
       assert.equal(scripts.length, 1);
     });
   });
@@ -2490,7 +2673,10 @@ describe("subagent interruption", () => {
 
     (subagentsModule as any).default(api);
 
-    assert.equal(registeredTools.some((tool) => tool.name === "luvus_interrupt"), true);
+    assert.equal(
+      registeredTools.some((tool) => tool.name === "luvus_interrupt"),
+      true,
+    );
   });
 
   it("resolves interrupt targets by exact id and reports name ambiguity", () => {
@@ -2499,9 +2685,18 @@ describe("subagent interruption", () => {
     runningMap.clear();
 
     try {
-      runningMap.set("a1", makeRunning({ id: "a1", name: "Worker", surface: "a1", sessionFile: "a1.jsonl" }));
-      runningMap.set("b2", makeRunning({ id: "b2", name: "Worker", surface: "b2", sessionFile: "b2.jsonl" }));
-      runningMap.set("c3", makeRunning({ id: "c3", name: "Scout", surface: "c3", sessionFile: "c3.jsonl" }));
+      runningMap.set(
+        "a1",
+        makeRunning({ id: "a1", name: "Worker", surface: "a1", sessionFile: "a1.jsonl" }),
+      );
+      runningMap.set(
+        "b2",
+        makeRunning({ id: "b2", name: "Worker", surface: "b2", sessionFile: "b2.jsonl" }),
+      );
+      runningMap.set(
+        "c3",
+        makeRunning({ id: "c3", name: "Scout", surface: "c3", sessionFile: "c3.jsonl" }),
+      );
 
       const byId = testApi.resolveInterruptTarget({ id: "c3", name: "Worker" });
       assert.equal(byId.running.id, "c3");
@@ -2556,9 +2751,11 @@ describe("subagent interruption", () => {
     try {
       runningMap.set("a1", makeRunning({ statusState: activeState }));
 
-      const result = withMockedNow(20_000, () => testApi.handleSubagentInterrupt({ name: "Worker" }, () => {
-        throw new Error("mux write failed");
-      }));
+      const result = withMockedNow(20_000, () =>
+        testApi.handleSubagentInterrupt({ name: "Worker" }, () => {
+          throw new Error("mux write failed");
+        }),
+      );
 
       assert.match(result.content[0].text, /Failed to send Escape/);
       assert.equal(classifyStatus(runningMap.get("a1").statusState, 20_000).kind, "active");
@@ -2617,14 +2814,19 @@ describe("subagent interruption", () => {
       writeFileSync(activityFile, `${JSON.stringify(activity)}\n`);
 
       try {
-        runningMap.set("a1", makeRunning({
-          activityFile,
-          statusState: createStatusState({ source: "pi", startTimeMs: 0 }),
-        }));
+        runningMap.set(
+          "a1",
+          makeRunning({
+            activityFile,
+            statusState: createStatusState({ source: "pi", startTimeMs: 0 }),
+          }),
+        );
 
-        withMockedNow(20_000, () => testApi.handleSubagentInterrupt({ name: "Worker" }, (surface: string) => {
-          sentSurface = surface;
-        }));
+        withMockedNow(20_000, () =>
+          testApi.handleSubagentInterrupt({ name: "Worker" }, (surface: string) => {
+            sentSurface = surface;
+          }),
+        );
 
         assert.equal(sentSurface, "pane-1");
         const state = runningMap.get("a1").statusState;
@@ -2664,9 +2866,11 @@ describe("subagent interruption", () => {
     try {
       runningMap.set("a1", makeRunning({ statusState: activeState }));
 
-      const result = withMockedNow(20_000, () => testApi.handleSubagentInterrupt({ name: "Worker" }, (surface: string) => {
-        sentSurface = surface;
-      }));
+      const result = withMockedNow(20_000, () =>
+        testApi.handleSubagentInterrupt({ name: "Worker" }, (surface: string) => {
+          sentSurface = surface;
+        }),
+      );
 
       assert.equal(sentSurface, "pane-1");
       assert.equal(result.content[0].text, 'Interrupt requested for subagent "Worker".');
@@ -2792,7 +2996,10 @@ describe("subagent messaging", () => {
   it("registers luvus_message in the main session extension", () => {
     const { api, registeredTools } = createMockExtensionApi();
     (subagentsModule as any).default(api);
-    assert.equal(registeredTools.some((tool) => tool.name === "luvus_message"), true);
+    assert.equal(
+      registeredTools.some((tool) => tool.name === "luvus_message"),
+      true,
+    );
   });
 
   it("builds the roster from the running map after add and remove", () => {
@@ -2803,7 +3010,10 @@ describe("subagent messaging", () => {
       try {
         testApi().setRosterContext({ file, parentPane: "21", parentName: "parent" });
         runningMap.set("a1", makeRunning({ id: "a1", name: "Worker", surface: "24" }));
-        runningMap.set("b2", makeRunning({ id: "b2", name: "Scout", surface: "25", cli: "claude" }));
+        runningMap.set(
+          "b2",
+          makeRunning({ id: "b2", name: "Scout", surface: "25", cli: "claude" }),
+        );
         testApi().writeRoster();
 
         let roster = JSON.parse(readFileSync(file, "utf8"));
@@ -2874,7 +3084,10 @@ describe("subagent messaging", () => {
     assert.deepEqual(testApi().resolveMessageTarget({ ...base, to: "Worker" }), {
       target: { relation: "sibling", id: "c3", name: "Worker", pane: "26" },
     });
-    assert.match(testApi().resolveMessageTarget({ ...base, to: "Reviewer" }).error, /No reachable agent/);
+    assert.match(
+      testApi().resolveMessageTarget({ ...base, to: "Reviewer" }).error,
+      /No reachable agent/,
+    );
   });
 
   it("lists reachable names for a finished target and reports ambiguity with ids", () => {
@@ -3214,35 +3427,38 @@ describe("subagents widget rendering", () => {
     const originalNow = Date.now;
     Date.now = () => 1_000_000;
     try {
-      const lines = testApi.renderSubagentWidgetLines([
-        {
-          id: "a1",
-          name: "A",
-          task: "",
-          surface: "s1",
-          startTime: 1_000_000 - 13_000,
-          sessionFile: "sess1",
-          statusState: createStatusState({ source: "pi", startTimeMs: 1_000_000 - 13_000 }),
-        },
-        {
-          id: "a2",
-          name: "B",
-          task: "",
-          surface: "s2",
-          startTime: 1_000_000 - 21_000,
-          sessionFile: "sess2",
-          statusState: createStatusState({ source: "pi", startTimeMs: 1_000_000 - 21_000 }),
-        },
-        {
-          id: "a3",
-          name: "C",
-          task: "",
-          surface: "s3",
-          startTime: 1_000_000 - 27_000,
-          sessionFile: "sess3",
-          statusState: createStatusState({ source: "pi", startTimeMs: 1_000_000 - 27_000 }),
-        },
-      ], 16);
+      const lines = testApi.renderSubagentWidgetLines(
+        [
+          {
+            id: "a1",
+            name: "A",
+            task: "",
+            surface: "s1",
+            startTime: 1_000_000 - 13_000,
+            sessionFile: "sess1",
+            statusState: createStatusState({ source: "pi", startTimeMs: 1_000_000 - 13_000 }),
+          },
+          {
+            id: "a2",
+            name: "B",
+            task: "",
+            surface: "s2",
+            startTime: 1_000_000 - 21_000,
+            sessionFile: "sess2",
+            statusState: createStatusState({ source: "pi", startTimeMs: 1_000_000 - 21_000 }),
+          },
+          {
+            id: "a3",
+            name: "C",
+            task: "",
+            surface: "s3",
+            startTime: 1_000_000 - 27_000,
+            sessionFile: "sess3",
+            statusState: createStatusState({ source: "pi", startTimeMs: 1_000_000 - 27_000 }),
+          },
+        ],
+        16,
+      );
 
       assert.deepEqual(
         lines.map((line: string) => visibleWidth(line)),
@@ -3270,17 +3486,20 @@ describe("subagents widget rendering", () => {
     const widths = [0, 1, 2];
     for (const width of widths) {
       const startTime = Date.now() - 5_000;
-      const lines = testApi.renderSubagentWidgetLines([
-        {
-          id: "a1",
-          name: "A",
-          task: "",
-          surface: "s1",
-          startTime,
-          sessionFile: "sess1",
-          statusState: createStatusState({ source: "pi", startTimeMs: startTime }),
-        },
-      ], width);
+      const lines = testApi.renderSubagentWidgetLines(
+        [
+          {
+            id: "a1",
+            name: "A",
+            task: "",
+            surface: "s1",
+            startTime,
+            sessionFile: "sess1",
+            statusState: createStatusState({ source: "pi", startTimeMs: startTime }),
+          },
+        ],
+        width,
+      );
 
       for (const line of lines) {
         assert.ok(
@@ -3306,7 +3525,7 @@ describe("luvus backend", () => {
   function installLuvusStub(): void {
     __setLuvusExecForTests__((args) => {
       const log = process.env.LUVUS_STUB_LOG;
-        if (log) appendFileSync(log, args.join(" ") + "\n");
+      if (log) appendFileSync(log, args.join(" ") + "\n");
       const mode = process.env.LUVUS_STUB_MODE;
       if (mode === "error") return '{"error":{"code":"boom","message":"stub exploded"}}';
       if (mode === "no-pane") return '{"id":"1","result":{"revision":1,"type":"pane"}}';
@@ -3319,7 +3538,10 @@ describe("luvus backend", () => {
         case "pane read": {
           // LUVUS_STUB_SCREEN lets a test put a specific text on the pane.
           const screen = process.env.LUVUS_STUB_SCREEN ?? "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8";
-          return JSON.stringify({ id: "1", result: { revision: 1, text: screen, type: "pane_read" } });
+          return JSON.stringify({
+            id: "1",
+            result: { revision: 1, text: screen, type: "pane_read" },
+          });
         }
         case "agent prompt":
           return '{"id":"1","result":{"pane":"24","submitted":true,"evidence":"queued","status":"idle","type":"agent_prompt"}}';
@@ -3435,17 +3657,37 @@ describe("luvus backend", () => {
   });
 
   it("is available only when all three LUVUS_* env vars are set", () => {
-    assert.equal(withLuvusEnv(allLuvusKeys({ LUVUS_ENV: "1", LUVUS_BIN_PATH: stubPath, LUVUS_PANE_ID: "21" }), isMuxAvailable), true);
-    assert.equal(withLuvusEnv(allLuvusKeys({ LUVUS_BIN_PATH: stubPath, LUVUS_PANE_ID: "21" }), isMuxAvailable), false);
-    assert.equal(withLuvusEnv(allLuvusKeys({ LUVUS_ENV: "1", LUVUS_BIN_PATH: stubPath }), isMuxAvailable), false);
-    assert.equal(withLuvusEnv(allLuvusKeys({ LUVUS_ENV: "1", LUVUS_PANE_ID: "21" }), isMuxAvailable), false);
+    assert.equal(
+      withLuvusEnv(
+        allLuvusKeys({ LUVUS_ENV: "1", LUVUS_BIN_PATH: stubPath, LUVUS_PANE_ID: "21" }),
+        isMuxAvailable,
+      ),
+      true,
+    );
+    assert.equal(
+      withLuvusEnv(allLuvusKeys({ LUVUS_BIN_PATH: stubPath, LUVUS_PANE_ID: "21" }), isMuxAvailable),
+      false,
+    );
+    assert.equal(
+      withLuvusEnv(allLuvusKeys({ LUVUS_ENV: "1", LUVUS_BIN_PATH: stubPath }), isMuxAvailable),
+      false,
+    );
+    assert.equal(
+      withLuvusEnv(allLuvusKeys({ LUVUS_ENV: "1", LUVUS_PANE_ID: "21" }), isMuxAvailable),
+      false,
+    );
     assert.equal(withLuvusEnv(allLuvusKeys({}), isMuxAvailable), false);
   });
 
   it("createSurface splits the caller pane unfocused and reads the pane id from the 1.1 fixture", () => {
     const log = join(stubDir, "calls.log");
     const surface = withLuvusEnv(
-      allLuvusKeys({ LUVUS_ENV: "1", LUVUS_BIN_PATH: stubPath, LUVUS_PANE_ID: "21", LUVUS_STUB_LOG: log }),
+      allLuvusKeys({
+        LUVUS_ENV: "1",
+        LUVUS_BIN_PATH: stubPath,
+        LUVUS_PANE_ID: "21",
+        LUVUS_STUB_LOG: log,
+      }),
       () => createSurface("Scout"),
     );
     assert.equal(surface, "24");
@@ -3458,7 +3700,12 @@ describe("luvus backend", () => {
   it("createSurface slugifies free-text names into valid Luvus pane names", () => {
     const log = join(stubDir, "calls-slug.log");
     withLuvusEnv(
-      allLuvusKeys({ LUVUS_ENV: "1", LUVUS_BIN_PATH: stubPath, LUVUS_PANE_ID: "21", LUVUS_STUB_LOG: log }),
+      allLuvusKeys({
+        LUVUS_ENV: "1",
+        LUVUS_BIN_PATH: stubPath,
+        LUVUS_PANE_ID: "21",
+        LUVUS_STUB_LOG: log,
+      }),
       () => createSurface("Review: API diff!"),
     );
     const calls = readFileSync(log, "utf8").trim().split("\n");
@@ -3469,7 +3716,12 @@ describe("luvus backend", () => {
     assert.throws(
       () =>
         withLuvusEnv(
-          allLuvusKeys({ LUVUS_ENV: "1", LUVUS_BIN_PATH: stubPath, LUVUS_PANE_ID: "21", LUVUS_STUB_MODE: "no-pane" }),
+          allLuvusKeys({
+            LUVUS_ENV: "1",
+            LUVUS_BIN_PATH: stubPath,
+            LUVUS_PANE_ID: "21",
+            LUVUS_STUB_MODE: "no-pane",
+          }),
           () => createSurface("Scout"),
         ),
       /no pane id/,
@@ -3479,7 +3731,12 @@ describe("luvus backend", () => {
   it("createSurface tab placement looks up the caller tab, moves the pane, and restores focus", () => {
     const log = join(stubDir, "calls-tab.log");
     const surface = withLuvusEnv(
-      allLuvusKeys({ LUVUS_ENV: "1", LUVUS_BIN_PATH: stubPath, LUVUS_PANE_ID: "21", LUVUS_STUB_LOG: log }),
+      allLuvusKeys({
+        LUVUS_ENV: "1",
+        LUVUS_BIN_PATH: stubPath,
+        LUVUS_PANE_ID: "21",
+        LUVUS_STUB_LOG: log,
+      }),
       () => createSurface("Scout", "tab"),
     );
     assert.equal(surface, "24");
@@ -3550,7 +3807,12 @@ describe("luvus backend", () => {
   it("createSurface right placement never calls agent list", () => {
     const log = join(stubDir, "calls-plainpane.log");
     withLuvusEnv(
-      allLuvusKeys({ LUVUS_ENV: "1", LUVUS_BIN_PATH: stubPath, LUVUS_PANE_ID: "21", LUVUS_STUB_LOG: log }),
+      allLuvusKeys({
+        LUVUS_ENV: "1",
+        LUVUS_BIN_PATH: stubPath,
+        LUVUS_PANE_ID: "21",
+        LUVUS_STUB_LOG: log,
+      }),
       () => createSurface("Scout", "right"),
     );
     const calls = readFileSync(log, "utf8").trim().split("\n");
@@ -3560,7 +3822,12 @@ describe("luvus backend", () => {
   it("createSurface down placement stacks the pane below the caller", () => {
     const log = join(stubDir, "calls-down.log");
     withLuvusEnv(
-      allLuvusKeys({ LUVUS_ENV: "1", LUVUS_BIN_PATH: stubPath, LUVUS_PANE_ID: "21", LUVUS_STUB_LOG: log }),
+      allLuvusKeys({
+        LUVUS_ENV: "1",
+        LUVUS_BIN_PATH: stubPath,
+        LUVUS_PANE_ID: "21",
+        LUVUS_STUB_LOG: log,
+      }),
       () => createSurface("Scout", "down"),
     );
     const calls = readFileSync(log, "utf8").trim().split("\n");
@@ -3571,7 +3838,12 @@ describe("luvus backend", () => {
     assert.throws(
       () =>
         withLuvusEnv(
-          allLuvusKeys({ LUVUS_ENV: "1", LUVUS_BIN_PATH: stubPath, LUVUS_PANE_ID: "21", LUVUS_STUB_MODE: "error" }),
+          allLuvusKeys({
+            LUVUS_ENV: "1",
+            LUVUS_BIN_PATH: stubPath,
+            LUVUS_PANE_ID: "21",
+            LUVUS_STUB_MODE: "error",
+          }),
           () => closeSurface("24"),
         ),
       /stub exploded/,
@@ -3589,7 +3861,12 @@ describe("luvus backend", () => {
   it("sendEscape sends the escape key through agent keys", () => {
     const log = join(stubDir, "calls-esc.log");
     withLuvusEnv(
-      allLuvusKeys({ LUVUS_ENV: "1", LUVUS_BIN_PATH: stubPath, LUVUS_PANE_ID: "21", LUVUS_STUB_LOG: log }),
+      allLuvusKeys({
+        LUVUS_ENV: "1",
+        LUVUS_BIN_PATH: stubPath,
+        LUVUS_PANE_ID: "21",
+        LUVUS_STUB_LOG: log,
+      }),
       () => sendEscape("24"),
     );
     assert.deepEqual(readFileSync(log, "utf8").trim().split("\n"), ["agent keys 24 esc"]);
@@ -3598,7 +3875,12 @@ describe("luvus backend", () => {
   it("runInPane sends one command line to the pane", () => {
     const log = join(stubDir, "calls-run.log");
     withLuvusEnv(
-      allLuvusKeys({ LUVUS_ENV: "1", LUVUS_BIN_PATH: stubPath, LUVUS_PANE_ID: "21", LUVUS_STUB_LOG: log }),
+      allLuvusKeys({
+        LUVUS_ENV: "1",
+        LUVUS_BIN_PATH: stubPath,
+        LUVUS_PANE_ID: "21",
+        LUVUS_STUB_LOG: log,
+      }),
       () => runInPane("24", 'node "/ext/cli.ts" "run" "/spec.json"'),
     );
     assert.deepEqual(readFileSync(log, "utf8").trim().split("\n"), [
@@ -3620,7 +3902,12 @@ describe("luvus backend", () => {
   it("agentPrompt sends `agent prompt` without --wait and unwraps the queued answer", () => {
     const log = join(stubDir, "calls-prompt.log");
     const result = withLuvusEnv(
-      allLuvusKeys({ LUVUS_ENV: "1", LUVUS_BIN_PATH: stubPath, LUVUS_PANE_ID: "21", LUVUS_STUB_LOG: log }),
+      allLuvusKeys({
+        LUVUS_ENV: "1",
+        LUVUS_BIN_PATH: stubPath,
+        LUVUS_PANE_ID: "21",
+        LUVUS_STUB_LOG: log,
+      }),
       () => agentPrompt("24", "hello"),
     ) as { submitted?: boolean; evidence?: string; pane?: string };
     assert.equal(result.submitted, true);
@@ -3654,7 +3941,10 @@ describe("luvus backend", () => {
   // closed the pane by hand. Unlike withLuvusEnv above, this helper holds
   // the env across awaits so watchSubagent still sees the stub after its
   // first tick.
-  async function withLuvusEnvAsync(env: Record<string, string | undefined>, fn: () => Promise<any>): Promise<any> {
+  async function withLuvusEnvAsync(
+    env: Record<string, string | undefined>,
+    fn: () => Promise<any>,
+  ): Promise<any> {
     const saved = new Map(Object.keys(env).map((k) => [k, process.env[k]]));
     for (const [key, value] of Object.entries(env)) {
       if (value === undefined) delete process.env[key];
@@ -3672,7 +3962,12 @@ describe("luvus backend", () => {
 
   it("watchSubagent keeps the sidecar result when the pane is already gone (pi)", async () => {
     await withTempDir(async (dir) => {
-      const sessionFile = createSessionFile(dir, [SESSION_HEADER, MODEL_CHANGE, USER_MSG, ASSISTANT_MSG]);
+      const sessionFile = createSessionFile(dir, [
+        SESSION_HEADER,
+        MODEL_CHANGE,
+        USER_MSG,
+        ASSISTANT_MSG,
+      ]);
       writeFileSync(`${sessionFile}.exit`, JSON.stringify({ type: "done" }));
       const log = join(dir, "calls-closegone.log");
       const testApi = (subagentsModule as any).__test__;
@@ -3736,9 +4031,15 @@ describe("luvus backend", () => {
     assert.equal(sent.length, 1);
     assert.equal(sent[0].message.customType, "luvus_handoff");
     assert.deepEqual(sent[0].opts, { triggerTurn: true, deliverAs: "steer" });
-    assert.match(sent[0].message.content, /Sub-agent "Worker" handed off at the context alert \(1m 20s\)\. The task is not complete\./);
+    assert.match(
+      sent[0].message.content,
+      /Sub-agent "Worker" handed off at the context alert \(1m 20s\)\. The task is not complete\./,
+    );
     assert.match(sent[0].message.content, /Goal: X\. Done: A\. Left: B\./);
-    assert.match(sent[0].message.content, /Start a new subagent with this handoff in its task\. Do not resume this session\./);
+    assert.match(
+      sent[0].message.content,
+      /Start a new subagent with this handoff in its task\. Do not resume this session\./,
+    );
     assert.match(sent[0].message.content, /Session: \/tmp\/child\.jsonl/);
     // No `Resume:` line — a handoff tells the parent to start a NEW subagent.
     assert.doesNotMatch(sent[0].message.content, /Resume:/);
@@ -3786,14 +4087,21 @@ describe("luvus backend", () => {
   });
 
   describe("pollForExit screen handling", () => {
-      /** Run pollForExit until it ends or the deadline aborts it; report the
-   * last argv logged and whether a result was produced. */
-  async function pollUntil(
-    env: Record<string, string | undefined>,
-    options: Partial<Parameters<typeof pollForExit>[2]> & { deadlineMs: number; interval?: number },
-  ): Promise<{ result: Awaited<ReturnType<typeof pollForExit>> | null; aborted: boolean; calls: string[] }> {
-    const log = join(stubDir, `calls-${Math.random().toString(16).slice(2)}.log`);
-    return withLuvusEnvAsync(allLuvusKeys({ ...env, LUVUS_STUB_LOG: log }), async () => {
+    /** Run pollForExit until it ends or the deadline aborts it; report the
+     * last argv logged and whether a result was produced. */
+    async function pollUntil(
+      env: Record<string, string | undefined>,
+      options: Partial<Parameters<typeof pollForExit>[2]> & {
+        deadlineMs: number;
+        interval?: number;
+      },
+    ): Promise<{
+      result: Awaited<ReturnType<typeof pollForExit>> | null;
+      aborted: boolean;
+      calls: string[];
+    }> {
+      const log = join(stubDir, `calls-${Math.random().toString(16).slice(2)}.log`);
+      return withLuvusEnvAsync(allLuvusKeys({ ...env, LUVUS_STUB_LOG: log }), async () => {
         // Self-contained seam: don't depend on the enclosing describe's before hook.
         installLuvusStub();
         const controller = new AbortController();
@@ -3801,15 +4109,21 @@ describe("luvus backend", () => {
         let result: Awaited<ReturnType<typeof pollForExit>> | null = null;
         let aborted = false;
         try {
-          result = await pollForExit("24", controller.signal, { interval: options.interval ?? 10, ...options });
+          result = await pollForExit("24", controller.signal, {
+            interval: options.interval ?? 10,
+            ...options,
+          });
         } catch (error) {
-          if (!/Aborted/.test(String(error))) console.error("POLLFOREXIT-RAW-ERROR", JSON.stringify(String(error?.stack ?? error)));
+          if (!/Aborted/.test(String(error)))
+            console.error("POLLFOREXIT-RAW-ERROR", JSON.stringify(String(error?.stack ?? error)));
           aborted = /Aborted/.test(String(error));
         } finally {
           clearTimeout(deadline);
           installLuvusStub();
         }
-        const calls = existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean) : [];
+        const calls = existsSync(log)
+          ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean)
+          : [];
         return { result, aborted, calls };
       });
     }
@@ -3847,9 +4161,15 @@ describe("luvus backend", () => {
     });
 
     for (const [label, agents] of [
-      ["a working process-tree agent", '[{"pane":"24","status":"working","authority":"process_tree"}]'],
+      [
+        "a working process-tree agent",
+        '[{"pane":"24","status":"working","authority":"process_tree"}]',
+      ],
       ["an idle process-tree agent", '[{"pane":"24","status":"idle","authority":"process_tree"}]'],
-      ["an agent with a non-terminal lease", '[{"pane":"24","status":"working","authority":"integration_report"}]'],
+      [
+        "an agent with a non-terminal lease",
+        '[{"pane":"24","status":"working","authority":"integration_report"}]',
+      ],
     ] as Array<[string, string]>) {
       it(`keeps polling when the sentinel text sits under ${label}`, async () => {
         const outcome = await pollUntil(
@@ -3886,9 +4206,27 @@ describe("luvus backend", () => {
     });
 
     it("sentinelLooksLive classifies agent-list rows without touching the CLI", () => {
-      assert.equal(sentinelLooksLive({ agents: [{ pane: "24", status: "working", authority: "process_tree" }] }, "24"), true);
-      assert.equal(sentinelLooksLive({ agents: [{ pane: "24", status: "idle", authority: "process_tree" }] }, "24"), true);
-      assert.equal(sentinelLooksLive({ agents: [{ pane: "24", status: "done", authority: "integration_report" }] }, "24"), false);
+      assert.equal(
+        sentinelLooksLive(
+          { agents: [{ pane: "24", status: "working", authority: "process_tree" }] },
+          "24",
+        ),
+        true,
+      );
+      assert.equal(
+        sentinelLooksLive(
+          { agents: [{ pane: "24", status: "idle", authority: "process_tree" }] },
+          "24",
+        ),
+        true,
+      );
+      assert.equal(
+        sentinelLooksLive(
+          { agents: [{ pane: "24", status: "done", authority: "integration_report" }] },
+          "24",
+        ),
+        false,
+      );
       assert.equal(sentinelLooksLive({ agents: [{ pane: "24", status: "blocked" }] }, "24"), false);
       assert.equal(sentinelLooksLive({ agents: [{ pane: "99", status: "done" }] }, "24"), false);
       assert.equal(sentinelLooksLive({ agents: [] }, "24"), false);
@@ -3968,7 +4306,10 @@ describe("subagent child status ownership", () => {
   }
 
   it("isSubagentChild detects a child by PI_LUVUS_SESSION", () => {
-    assert.equal(subagentsModule.isSubagentChild({ PI_LUVUS_SESSION: "/tmp/s.jsonl" } as NodeJS.ProcessEnv), true);
+    assert.equal(
+      subagentsModule.isSubagentChild({ PI_LUVUS_SESSION: "/tmp/s.jsonl" } as NodeJS.ProcessEnv),
+      true,
+    );
     assert.equal(subagentsModule.isSubagentChild({} as NodeJS.ProcessEnv), false);
   });
 
@@ -4003,7 +4344,11 @@ describe("subagent child status ownership", () => {
       await new Promise((resolve) => setImmediate(resolve));
       target.fire("session_shutdown", undefined, CTX);
       const seen = statusCalls(calls);
-      assert.equal(seen.filter((a) => a[1] === "report" && a[a.indexOf("--status") + 1] === "idle").length >= 1, true);
+      assert.equal(
+        seen.filter((a) => a[1] === "report" && a[a.indexOf("--status") + 1] === "idle").length >=
+          1,
+        true,
+      );
       assert.equal(seen.filter((a) => a[1] === "release").length, 1);
     } finally {
       restore();

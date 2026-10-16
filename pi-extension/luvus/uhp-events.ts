@@ -57,7 +57,11 @@ export function parseUhpEventLine(line: string): UhpEventFrame | null {
   if (typeof frame.event !== "string" || frame.event === "") return null;
   if (typeof frame.sequence !== "number" || !Number.isFinite(frame.sequence)) return null;
   if (typeof frame.data !== "object" || frame.data === null) return null;
-  return { event: frame.event, sequence: frame.sequence, data: frame.data as Record<string, unknown> };
+  return {
+    event: frame.event,
+    sequence: frame.sequence,
+    data: frame.data as Record<string, unknown>,
+  };
 }
 
 /** Classify a parsed frame: a trigger, a resync request, or noise. */
@@ -79,7 +83,10 @@ export function framePane(frame: UhpEventFrame): string | undefined {
 }
 
 /** Bounded restart delay for `attempt` consecutive stream failures. */
-export function restartDelayMs(attempt: number, delays: readonly number[] = UHP_RESTART_DELAYS_MS): number {
+export function restartDelayMs(
+  attempt: number,
+  delays: readonly number[] = UHP_RESTART_DELAYS_MS,
+): number {
   const list = delays.length > 0 ? delays : UHP_RESTART_DELAYS_MS;
   const index = Math.min(Math.max(attempt, 0), list.length - 1);
   return list[index];
@@ -143,7 +150,9 @@ function parseAgentListEnvelope(stdout: string): AgentListSnapshot | null {
     const parsed = JSON.parse(stdout) as { result?: unknown; error?: unknown } | null;
     if (parsed === null || typeof parsed !== "object") return null;
     if ("error" in parsed && parsed.error) return null;
-    return typeof parsed.result === "object" && parsed.result !== null ? (parsed.result as AgentListSnapshot) : null;
+    return typeof parsed.result === "object" && parsed.result !== null
+      ? (parsed.result as AgentListSnapshot)
+      : null;
   } catch {
     return null;
   }

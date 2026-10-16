@@ -1,0 +1,10 @@
+# Prettier reflows markdown prose, which produces large diffs of no value across
+# agents/*.md, openspec/**/*.md and the skill files. Readability of those prompts
+# depends on their line structure, so formatting is not applied to them.
+*.md
+
+# Prettier core has no TOML parser.
+*.toml
+
+node_modules/
+package-lock.json

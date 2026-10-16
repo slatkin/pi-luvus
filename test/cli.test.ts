@@ -8,7 +8,18 @@ for (const key of Object.keys(process.env)) {
   if (key.startsWith("LUVUS_")) delete process.env[key];
 }
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -163,10 +174,7 @@ describe("launch spec", () => {
   });
 
   it("rejects an unknown version", () => {
-    assert.throws(
-      () => validateLaunchSpec({ ...SPEC, version: 2 }),
-      /unknown version 2/,
-    );
+    assert.throws(() => validateLaunchSpec({ ...SPEC, version: 2 }), /unknown version 2/);
   });
 });
 
@@ -186,7 +194,15 @@ describe("paneCommandLine", () => {
   });
 
   it("rejects a token with any character a supported shell would expand", () => {
-    const unsafe = ["/tmp/a$b", "/tmp/a%b", '/tmp/a"b', "/tmp/a`b", "/tmp/a!b", "/tmp/a\\\\b", "/tmp/a\u0007b"];
+    const unsafe = [
+      "/tmp/a$b",
+      "/tmp/a%b",
+      '/tmp/a"b',
+      "/tmp/a`b",
+      "/tmp/a!b",
+      "/tmp/a\\\\b",
+      "/tmp/a\u0007b",
+    ];
     for (const token of unsafe) {
       assert.throws(
         () => paneCommandLine("/ext/cli.ts", token),
@@ -206,7 +222,10 @@ describe("paneCommandLine", () => {
 
 describe("buildPaneTitle", () => {
   it("strips control characters and escape sequences from hostile task text", () => {
-    assert.equal(buildPaneTitle("Scout", "Fix\x1b[2J the\x07 bug\nsecond line"), "Scout — Fix[2J the bug");
+    assert.equal(
+      buildPaneTitle("Scout", "Fix\x1b[2J the\x07 bug\nsecond line"),
+      "Scout — Fix[2J the bug",
+    );
     assert.equal(buildPaneTitle("Scout", "x".repeat(60)), "Scout — " + "x".repeat(48));
   });
 
@@ -222,7 +241,11 @@ describe("buildPaneTitle", () => {
 describe("resolvePiCommand", () => {
   it("prefers PI_LUVUS_PI_ENTRY and runs it with the current node", () => {
     assert.deepEqual(
-      resolvePiCommand({ platform: "linux", env: { PI_LUVUS_PI_ENTRY: "/opt/pi/entry.js" }, execPath: "/usr/bin/node" }),
+      resolvePiCommand({
+        platform: "linux",
+        env: { PI_LUVUS_PI_ENTRY: "/opt/pi/entry.js" },
+        execPath: "/usr/bin/node",
+      }),
       ["/usr/bin/node", "/opt/pi/entry.js"],
     );
   });
@@ -235,10 +258,17 @@ describe("resolvePiCommand", () => {
       writeFileSync(join(packageDir, "dist", "bundle", "cli.js"), "// pi entry\n");
       writeFileSync(
         join(packageDir, "package.json"),
-        JSON.stringify({ name: "@earendil-works/pi-coding-agent", bin: { pi: "dist/bundle/cli.js" } }),
+        JSON.stringify({
+          name: "@earendil-works/pi-coding-agent",
+          bin: { pi: "dist/bundle/cli.js" },
+        }),
       );
       assert.deepEqual(
-        resolvePiCommand({ platform: "win32", env: { PATH: `C:\\Windows;${dir}` }, execPath: "C:\\node.exe" }),
+        resolvePiCommand({
+          platform: "win32",
+          env: { PATH: `C:\\Windows;${dir}` },
+          execPath: "C:\\node.exe",
+        }),
         ["C:\\node.exe", join(packageDir, "dist", "bundle", "cli.js")],
       );
     });
@@ -247,12 +277,18 @@ describe("resolvePiCommand", () => {
   it("skips a win32 pi.cmd that has no sibling pi package and falls back to pi", () => {
     withTempDir((dir) => {
       writeFileSync(join(dir, "pi.cmd"), "@echo off\n");
-      assert.deepEqual(resolvePiCommand({ platform: "win32", env: { PATH: dir }, execPath: "/node" }), ["pi"]);
+      assert.deepEqual(
+        resolvePiCommand({ platform: "win32", env: { PATH: dir }, execPath: "/node" }),
+        ["pi"],
+      );
     });
   });
 
   it("falls back to pi on posix", () => {
-    assert.deepEqual(resolvePiCommand({ platform: "linux", env: { PATH: "/usr/bin" }, execPath: "/node" }), ["pi"]);
+    assert.deepEqual(
+      resolvePiCommand({ platform: "linux", env: { PATH: "/usr/bin" }, execPath: "/node" }),
+      ["pi"],
+    );
   });
 });
 
@@ -264,9 +300,22 @@ describe("runSpec", () => {
       writeFileSync(session, "agent send boss 'old report'\nagent send boss '<text>'\n");
       const sent: string[] = [];
       await runSpec(
-        { version: LAUNCH_SPEC_VERSION, name: "rev", env: {}, command: process.execPath, args: [PI_STUB], sessionFile: session, parent: "boss" },
+        {
+          version: LAUNCH_SPEC_VERSION,
+          name: "rev",
+          env: {},
+          command: process.execPath,
+          args: [PI_STUB],
+          sessionFile: session,
+          parent: "boss",
+        },
         undefined,
-        { env: { PATH: process.env.PATH }, stdout: () => {}, stderr: () => {}, sendToParent: (to, text) => sent.push(`${to}:${text}`) },
+        {
+          env: { PATH: process.env.PATH },
+          stdout: () => {},
+          stderr: () => {},
+          sendToParent: (to, text) => sent.push(`${to}:${text}`),
+        },
       );
       assert.equal(sent.length, 1);
       assert.match(sent[0], /^boss:rev exited without sending a report/);
@@ -277,12 +326,28 @@ describe("runSpec", () => {
     await withTempDirAsync(async (dir) => {
       const session = join(dir, "session.jsonl");
       const stub = join(dir, "reporter.mjs");
-      writeFileSync(stub, `import { appendFileSync } from "node:fs"; appendFileSync(${JSON.stringify(session)}, "agent send boss 'PASS'\\n");`);
+      writeFileSync(
+        stub,
+        `import { appendFileSync } from "node:fs"; appendFileSync(${JSON.stringify(session)}, "agent send boss 'PASS'\\n");`,
+      );
       const sent: string[] = [];
       await runSpec(
-        { version: LAUNCH_SPEC_VERSION, name: "rev", env: {}, command: process.execPath, args: [stub], sessionFile: session, parent: "boss" },
+        {
+          version: LAUNCH_SPEC_VERSION,
+          name: "rev",
+          env: {},
+          command: process.execPath,
+          args: [stub],
+          sessionFile: session,
+          parent: "boss",
+        },
         undefined,
-        { env: { PATH: process.env.PATH }, stdout: () => {}, stderr: () => {}, sendToParent: (to, text) => sent.push(`${to}:${text}`) },
+        {
+          env: { PATH: process.env.PATH },
+          stdout: () => {},
+          stderr: () => {},
+          sendToParent: (to, text) => sent.push(`${to}:${text}`),
+        },
       );
       assert.deepEqual(sent, []);
     });
@@ -293,12 +358,28 @@ describe("runSpec", () => {
       const session = join(dir, "session.jsonl");
       const stub = join(dir, "reporter.mjs");
       // JSONL escapes the quote: luvus agent send boss \"$(cat r.txt)\"
-      writeFileSync(stub, `import { appendFileSync } from "node:fs"; appendFileSync(${JSON.stringify(session)}, 'agent send boss \\\\"$(cat r.txt)\\\\"\\n');`);
+      writeFileSync(
+        stub,
+        `import { appendFileSync } from "node:fs"; appendFileSync(${JSON.stringify(session)}, 'agent send boss \\\\"$(cat r.txt)\\\\"\\n');`,
+      );
       const sent: string[] = [];
       await runSpec(
-        { version: LAUNCH_SPEC_VERSION, name: "rev", env: {}, command: process.execPath, args: [stub], sessionFile: session, parent: "boss" },
+        {
+          version: LAUNCH_SPEC_VERSION,
+          name: "rev",
+          env: {},
+          command: process.execPath,
+          args: [stub],
+          sessionFile: session,
+          parent: "boss",
+        },
         undefined,
-        { env: { PATH: process.env.PATH }, stdout: () => {}, stderr: () => {}, sendToParent: (to, text) => sent.push(`${to}:${text}`) },
+        {
+          env: { PATH: process.env.PATH },
+          stdout: () => {},
+          stderr: () => {},
+          sendToParent: (to, text) => sent.push(`${to}:${text}`),
+        },
       );
       assert.deepEqual(sent, []);
     });
@@ -502,7 +583,7 @@ const REPO_ROOT = resolve(TEST_DIR, "..");
 const CLI = join(REPO_ROOT, "pi-extension", "luvus", "cli.ts");
 
 let workdir = "";
-let luvusCalls: string[] = [];
+const luvusCalls: string[] = [];
 let defaultConfigPath = "";
 
 before(() => {
@@ -520,7 +601,10 @@ before(() => {
       return JSON.stringify({ id: "1", result: { agents: [{ pane: "21", tab: "7" }] } });
     }
     if (args[0] === "pane" && args[1] === "split") {
-      return JSON.stringify({ id: "1", result: { pane: "24", revision: 1, type: "pane", tab: "1", workspace: "2" } });
+      return JSON.stringify({
+        id: "1",
+        result: { pane: "24", revision: 1, type: "pane", tab: "1", workspace: "2" },
+      });
     }
     return JSON.stringify({ id: "1", result: { revision: 1, type: "ok" } });
   });
@@ -564,7 +648,12 @@ interface CliDepsLike {
 type CliEntry = (argv: string[], deps: CliDepsLike) => Promise<number>;
 
 /** Run an entry point with captured output and no real close timer. */
-async function capture(entry: CliEntry, argv: string[], env: NodeJS.ProcessEnv, configPath = defaultConfigPath): Promise<CliResult> {
+async function capture(
+  entry: CliEntry,
+  argv: string[],
+  env: NodeJS.ProcessEnv,
+  configPath = defaultConfigPath,
+): Promise<CliResult> {
   const stdout: string[] = [];
   const stderr: string[] = [];
   const code = await entry(argv, {
@@ -577,7 +666,11 @@ async function capture(entry: CliEntry, argv: string[], env: NodeJS.ProcessEnv, 
   return { code, stdout: stdout.join(""), stderr: stderr.join("") };
 }
 
-async function runCli(argv: string[], env: NodeJS.ProcessEnv, configPath?: string): Promise<CliResult> {
+async function runCli(
+  argv: string[],
+  env: NodeJS.ProcessEnv,
+  configPath?: string,
+): Promise<CliResult> {
   return capture(main, argv, env, configPath);
 }
 
@@ -627,14 +720,21 @@ async function runStartWith(entry: CliEntry, options: StartCase): Promise<Starte
   const env = options.bare ? { PATH: process.env.PATH } : luvusEnv(options.env);
   const argv = [
     "start",
-    "--name", options.child ?? "scout-1",
-    "--role", options.role ?? "worker",
-    "--cwd", options.cwd,
-    "--brief", brief,
-    "--parent", options.parent ?? "orch",
-    "--scratch", scratch,
+    "--name",
+    options.child ?? "scout-1",
+    "--role",
+    options.role ?? "worker",
+    "--cwd",
+    options.cwd,
+    "--brief",
+    brief,
+    "--parent",
+    options.parent ?? "orch",
+    "--scratch",
+    scratch,
   ];
-  if (options.closeGraceMs !== undefined) argv.push("--close-grace-ms", String(options.closeGraceMs));
+  if (options.closeGraceMs !== undefined)
+    argv.push("--close-grace-ms", String(options.closeGraceMs));
   if (options.surface !== undefined) argv.push("--surface", options.surface);
 
   const result = await capture(entry, argv, env, options.configPath);
@@ -682,7 +782,12 @@ describe("cli.ts start", () => {
 
   it("writes the spec, the prompts and the pane line, and prints JSON", async () => {
     const cwd = mkdtempSync(join(workdir, "contract-cwd-"));
-    writeRole(cwd, "doer", "model: test-model\nthinking: high\ntools: read\nauto-exit: true", "Doer role body.");
+    writeRole(
+      cwd,
+      "doer",
+      "model: test-model\nthinking: high\ntools: read\nauto-exit: true",
+      "Doer role body.",
+    );
     const res = await runStart({ cwd, role: "doer", child: "fix-7", parent: "orch" });
 
     // Stdout is exactly one JSON document with pane, session and launch.
@@ -723,7 +828,10 @@ describe("cli.ts start", () => {
     assert.match(String(spec.env.PI_LUVUS_ID), /^[0-9a-f]{8}$/);
     assert.ok(String(spec.env.PI_LUVUS_ACTIVITY_FILE).endsWith(".activity.json"));
     assert.equal(argValue(spec.args, "--session"), res.json.session);
-    assert.equal(argValue(spec.args, "-e"), join(REPO_ROOT, "pi-extension", "luvus", "luvus-done.ts"));
+    assert.equal(
+      argValue(spec.args, "-e"),
+      join(REPO_ROOT, "pi-extension", "luvus", "luvus-done.ts"),
+    );
     assert.equal(argValue(spec.args, "--model"), "test-model:high");
     assert.equal(argValue(spec.args, "--append-system-prompt"), res.rolePromptPath);
     assert.equal(argValue(spec.args, "--tools"), "read,caller_ping,luvus_done,luvus_message");
@@ -739,14 +847,25 @@ describe("cli.ts start", () => {
 
     const slowCwd = mkdtempSync(join(workdir, "slow-"));
     writeRole(slowCwd, "slow", "model: m\nthinking: low", "Slow body.");
-    assert.equal((await runStart({ cwd: slowCwd, role: "slow" })).spec.env.PI_LUVUS_AUTO_EXIT, undefined);
+    assert.equal(
+      (await runStart({ cwd: slowCwd, role: "slow" })).spec.env.PI_LUVUS_AUTO_EXIT,
+      undefined,
+    );
   });
 
   it("appends missing control tools to the role tools", async () => {
     const cwd = mkdtempSync(join(workdir, "thin-"));
-    writeRole(cwd, "thin", "model: m\nthinking: low\ntools: read, bash\nauto-exit: true", "Thin body.");
+    writeRole(
+      cwd,
+      "thin",
+      "model: m\nthinking: low\ntools: read, bash\nauto-exit: true",
+      "Thin body.",
+    );
     const res = await runStart({ cwd, role: "thin" });
-    assert.equal(argValue(res.spec.args, "--tools"), "read,bash,caller_ping,luvus_done,luvus_message");
+    assert.equal(
+      argValue(res.spec.args, "--tools"),
+      "read,bash,caller_ping,luvus_done,luvus_message",
+    );
   });
 
   it("uses the default tool list when the role has no tools", async () => {
@@ -826,7 +945,11 @@ describe("cli.ts start", () => {
     const stdout: string[] = [];
     const stderr: string[] = [];
     const code = await main(["run", res.json.launch, res.promptPath], {
-      env: luvusEnv({ PI_LUVUS_PI_ENTRY: PI_STUB, PI_STUB_RECORD: recordPath, LUVUS_PANE_ID: "99" }),
+      env: luvusEnv({
+        PI_LUVUS_PI_ENTRY: PI_STUB,
+        PI_STUB_RECORD: recordPath,
+        LUVUS_PANE_ID: "99",
+      }),
       stdout: (text) => stdout.push(text),
       stderr: (text) => stderr.push(text),
       sleep: async () => {},
@@ -909,8 +1032,21 @@ describe("cli.ts start", () => {
 
     const res = await runCli(
       [
-        "start", "--name", "fix-7", "--role", "doer", "--cwd", cwd, "--brief", brief,
-        "--parent", "orch", "--scratch", join(dir, "scratch"), "--surface", "sideways",
+        "start",
+        "--name",
+        "fix-7",
+        "--role",
+        "doer",
+        "--cwd",
+        cwd,
+        "--brief",
+        brief,
+        "--parent",
+        "orch",
+        "--scratch",
+        join(dir, "scratch"),
+        "--surface",
+        "sideways",
       ],
       luvusEnv(),
     );
@@ -983,7 +1119,10 @@ describe("cli.ts resume", () => {
       runCli(["resume", "--launch", started.json.launch, "--prompt", unsafe], luvusEnv()),
       /Unsafe pane command token/,
     );
-    assert.equal(luvusCalls.some((call) => call.startsWith("pane split")), false);
+    assert.equal(
+      luvusCalls.some((call) => call.startsWith("pane split")),
+      false,
+    );
   });
 
   it("--surface tab moves the resumed pane into its own tab", async () => {
@@ -1019,7 +1158,10 @@ describe("cli.ts run", () => {
         args: [],
         sessionFile: join(dir, "session.jsonl"),
       });
-      const res = await runCli(["run", specPath], luvusEnv({ PI_LUVUS_PI_ENTRY: PI_STUB, PI_STUB_CODE: "3" }));
+      const res = await runCli(
+        ["run", specPath],
+        luvusEnv({ PI_LUVUS_PI_ENTRY: PI_STUB, PI_STUB_CODE: "3" }),
+      );
       assert.equal(res.code, 3);
       assert.equal(res.stdout, "__SUBAGENT_DONE_3__\n");
     });
@@ -1036,7 +1178,10 @@ describe("cli.ts run", () => {
   it("fails naming the file when the spec is invalid", async () => {
     await withTempDirAsync(async (dir) => {
       const specPath = join(dir, "nocmd.json");
-      writeFileSync(specPath, JSON.stringify({ version: LAUNCH_SPEC_VERSION, name: "x", env: {}, args: [] }));
+      writeFileSync(
+        specPath,
+        JSON.stringify({ version: LAUNCH_SPEC_VERSION, name: "x", env: {}, args: [] }),
+      );
       await assert.rejects(runCli(["run", specPath], luvusEnv()), (error: Error) => {
         assert.match(error.message, /Cannot read launch spec/);
         assert.ok(error.message.includes(specPath));
@@ -1056,9 +1201,21 @@ describe("cli.ts last-message", () => {
       const sessionPath = join(dir, "session.jsonl");
       writeSession(sessionPath, [
         { type: "session", id: "s1" },
-        { type: "message", id: "m1", message: { role: "user", content: [{ type: "text", text: "do it" }] } },
-        { type: "message", id: "m2", message: { role: "assistant", content: [{ type: "text", text: "draft" }] } },
-        { type: "message", id: "m3", message: { role: "assistant", content: [{ type: "text", text: "final report" }] } },
+        {
+          type: "message",
+          id: "m1",
+          message: { role: "user", content: [{ type: "text", text: "do it" }] },
+        },
+        {
+          type: "message",
+          id: "m2",
+          message: { role: "assistant", content: [{ type: "text", text: "draft" }] },
+        },
+        {
+          type: "message",
+          id: "m3",
+          message: { role: "assistant", content: [{ type: "text", text: "final report" }] },
+        },
       ]);
       const res = await runCli(["last-message", "--session", sessionPath], luvusEnv());
       assert.equal(res.code, 0);
@@ -1071,7 +1228,11 @@ describe("cli.ts last-message", () => {
       const sessionPath = join(dir, "session.jsonl");
       writeSession(sessionPath, [
         { type: "session", id: "s1" },
-        { type: "message", id: "m1", message: { role: "user", content: [{ type: "text", text: "do it" }] } },
+        {
+          type: "message",
+          id: "m1",
+          message: { role: "user", content: [{ type: "text", text: "do it" }] },
+        },
       ]);
       const res = await runCli(["last-message", "--session", sessionPath], luvusEnv());
       assert.equal(res.stdout, "(no assistant message)\n");
@@ -1117,9 +1278,14 @@ function copyShim(root: string): string {
  */
 function makeInstall(root: string): string {
   mkdirSync(join(root, "pi-extension"), { recursive: true });
-  cpSync(join(REPO_ROOT, "pi-extension", "luvus"), join(root, "pi-extension", "luvus"), { recursive: true });
+  cpSync(join(REPO_ROOT, "pi-extension", "luvus"), join(root, "pi-extension", "luvus"), {
+    recursive: true,
+  });
   const checkoutLuvus = pathToFileURL(join(REPO_ROOT, "pi-extension", "luvus", "luvus.ts")).href;
-  writeFileSync(join(root, "pi-extension", "luvus", "luvus.ts"), `export * from ${JSON.stringify(checkoutLuvus)};\n`);
+  writeFileSync(
+    join(root, "pi-extension", "luvus", "luvus.ts"),
+    `export * from ${JSON.stringify(checkoutLuvus)};\n`,
+  );
   return realpathSync(root);
 }
 
@@ -1141,7 +1307,10 @@ describe("skills/pi-luvus/launch.ts", () => {
     });
     // The override root wins over this checkout, so its own CLI wrote the
     // spec and its sentinel is on -e.
-    assert.equal(argValue(started.spec.args, "-e"), join(install, "pi-extension", "luvus", "luvus-done.ts"));
+    assert.equal(
+      argValue(started.spec.args, "-e"),
+      join(install, "pi-extension", "luvus", "luvus-done.ts"),
+    );
     assert.deepEqual(luvusCalls, [
       "pane split 21 --right --no-focus",
       "pane name scout-1 --pane 24",
@@ -1219,7 +1388,10 @@ describe("skills/pi-luvus/launch.ts", () => {
       env: { HOME: home },
     });
     const installCli = join(install, "pi-extension", "luvus", "cli.ts");
-    assert.equal(argValue(started.spec.args, "-e"), join(install, "pi-extension", "luvus", "luvus-done.ts"));
+    assert.equal(
+      argValue(started.spec.args, "-e"),
+      join(install, "pi-extension", "luvus", "luvus-done.ts"),
+    );
     assert.deepEqual(luvusCalls, [
       "pane split 21 --right --no-focus",
       "pane name scout-1 --pane 24",
@@ -1252,9 +1424,17 @@ function runHook(input: string, env: NodeJS.ProcessEnv, cwd?: string): HookOutco
 /** A transcript with `userMessages` real human entries, a tool result and an assistant turn. */
 function writeTranscript(path: string, userMessages: string[]): void {
   const lines = [
-    ...userMessages.map((content) => JSON.stringify({ type: "user", message: { role: "user", content } })),
-    JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "tool_result", content: "ok" }] } }),
-    JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "done" }] } }),
+    ...userMessages.map((content) =>
+      JSON.stringify({ type: "user", message: { role: "user", content } }),
+    ),
+    JSON.stringify({
+      type: "user",
+      message: { role: "user", content: [{ type: "tool_result", content: "ok" }] },
+    }),
+    JSON.stringify({
+      type: "assistant",
+      message: { role: "assistant", content: [{ type: "text", text: "done" }] },
+    }),
   ];
   writeFileSync(path, `${lines.join("\n")}\n`);
 }
@@ -1301,7 +1481,11 @@ describe("plugin/hooks/on-stop.js", () => {
       const sentinel = join(dir, "child-done");
 
       const outcome = runHook(
-        JSON.stringify({ stop_hook_active: true, transcript_path: transcript, last_assistant_message: "All done." }),
+        JSON.stringify({
+          stop_hook_active: true,
+          transcript_path: transcript,
+          last_assistant_message: "All done.",
+        }),
         { PI_CLAUDE_SENTINEL: sentinel },
       );
 
@@ -1347,7 +1531,10 @@ describe("plugin/hooks/on-stop.js", () => {
       const sentinel = join(dir, "child-done");
 
       const outcome = runHook(
-        JSON.stringify({ transcript_path: join(dir, "absent.jsonl"), last_assistant_message: "All done." }),
+        JSON.stringify({
+          transcript_path: join(dir, "absent.jsonl"),
+          last_assistant_message: "All done.",
+        }),
         { PI_CLAUDE_SENTINEL: sentinel },
       );
 

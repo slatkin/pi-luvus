@@ -14,11 +14,20 @@
  */
 import { writeFileSync } from "node:fs";
 
-const { PI_STUB_RECORD, PI_STUB_EXIT, PI_STUB_EXIT_BODY, PI_STUB_CODE, PI_STUB_SIGNAL, PI_STUB_DELAY_MS } =
-  process.env;
+const {
+  PI_STUB_RECORD,
+  PI_STUB_EXIT,
+  PI_STUB_EXIT_BODY,
+  PI_STUB_CODE,
+  PI_STUB_SIGNAL,
+  PI_STUB_DELAY_MS,
+} = process.env;
 
 if (PI_STUB_RECORD) {
-  writeFileSync(PI_STUB_RECORD, JSON.stringify({ args: process.argv.slice(2), env: process.env }, null, 2));
+  writeFileSync(
+    PI_STUB_RECORD,
+    JSON.stringify({ args: process.argv.slice(2), env: process.env }, null, 2),
+  );
 }
 if (PI_STUB_DELAY_MS) {
   await new Promise((resolve) => setTimeout(resolve, Number(PI_STUB_DELAY_MS)));

@@ -10,8 +10,7 @@ import { getDefaultConfigPath } from "./status.ts";
 export const DEFAULT_CONTEXT_ALERT_THRESHOLD_TOKENS = 200_000;
 
 export type ContextAlertThreshold =
-  | { kind: "tokens"; value: number }
-  | { kind: "percent"; value: number };
+  { kind: "tokens"; value: number } | { kind: "percent"; value: number };
 
 export interface ContextAlertConfig {
   enabled: boolean;
@@ -29,7 +28,10 @@ export interface ContextUsageLike {
  * threshold, `percent` for a percentage threshold) is a number at or above
  * the threshold. Unknown usage and unknown fields never alert.
  */
-export function shouldAlert(usage: ContextUsageLike | undefined, threshold: ContextAlertThreshold): boolean {
+export function shouldAlert(
+  usage: ContextUsageLike | undefined,
+  threshold: ContextAlertThreshold,
+): boolean {
   if (!usage) return false;
   if (threshold.kind === "tokens") {
     return typeof usage.tokens === "number" && usage.tokens >= threshold.value;
@@ -147,7 +149,10 @@ function rejectUnsupportedContextAlertKeys(
 ): void {
   const unsupportedKeys = Object.keys(value).filter((key) => !allowedKeys.includes(key));
   if (unsupportedKeys.length > 0) {
-    invalidContextAlertConfig(source, `contextAlert has unsupported key(s): ${unsupportedKeys.join(", ")}`);
+    invalidContextAlertConfig(
+      source,
+      `contextAlert has unsupported key(s): ${unsupportedKeys.join(", ")}`,
+    );
   }
 }
 
@@ -158,7 +163,10 @@ function rejectUnsupportedContextAlertKeys(
  */
 export function parseContextAlertConfig(raw: unknown, source = "config.json"): ContextAlertConfig {
   if (raw === undefined) {
-    return { enabled: false, threshold: { kind: "tokens", value: DEFAULT_CONTEXT_ALERT_THRESHOLD_TOKENS } };
+    return {
+      enabled: false,
+      threshold: { kind: "tokens", value: DEFAULT_CONTEXT_ALERT_THRESHOLD_TOKENS },
+    };
   }
   if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
     invalidContextAlertConfig(source, "contextAlert must be an object");
@@ -166,7 +174,8 @@ export function parseContextAlertConfig(raw: unknown, source = "config.json"): C
   const block = raw as Record<string, unknown>;
   rejectUnsupportedContextAlertKeys(block, ["enabled", "threshold"], source);
 
-  const enabled = block.enabled === undefined ? false : requireContextAlertBoolean(block.enabled, source);
+  const enabled =
+    block.enabled === undefined ? false : requireContextAlertBoolean(block.enabled, source);
   const threshold =
     block.threshold === undefined
       ? { kind: "tokens" as const, value: DEFAULT_CONTEXT_ALERT_THRESHOLD_TOKENS }

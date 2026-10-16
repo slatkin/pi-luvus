@@ -16,7 +16,6 @@ import {
 } from "../pi-extension/luvus/context-alert.ts";
 import { listLuvusSessionsAsync, __setLuvusExecForTests__ } from "../pi-extension/luvus/luvus.ts";
 import { loadStatusConfig, parseStatusConfig } from "../pi-extension/luvus/status.ts";
-import subagentDoneExtension from "../pi-extension/luvus/luvus-done.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
@@ -68,7 +67,10 @@ describe("context-alert config", () => {
 
   it("rejects an invalid contextAlert block and enabled value", () => {
     assert.throws(() => parseContextAlertConfig("yes"), /contextAlert must be an object/);
-    assert.throws(() => parseContextAlertConfig({ enabled: "yes" }), /contextAlert\.enabled must be a boolean/);
+    assert.throws(
+      () => parseContextAlertConfig({ enabled: "yes" }),
+      /contextAlert\.enabled must be a boolean/,
+    );
   });
 
   it("rejects invalid thresholds with an error that names contextAlert.threshold", () => {
@@ -239,7 +241,10 @@ describe("context-alert handoff log", () => {
         threshold: 200000,
       };
       appendHandoffLog(row, path);
-      appendHandoffLog({ ...row, event: "handoff" as const, tokens: null, threshold: undefined }, path);
+      appendHandoffLog(
+        { ...row, event: "handoff" as const, tokens: null, threshold: undefined },
+        path,
+      );
       const lines = readFileSync(path, "utf8").trim().split("\n");
       assert.equal(lines.length, 2);
       assert.deepEqual(JSON.parse(lines[0]), row);
@@ -267,7 +272,9 @@ describe("context-alert handoff log", () => {
       threshold: 100,
     };
     // A path inside a directory that does not exist must not throw.
-    assert.doesNotThrow(() => appendHandoffLog(row, join(tmpdir(), "pi-handoff-log-missing-dir", "x", "handoffs.jsonl")));
+    assert.doesNotThrow(() =>
+      appendHandoffLog(row, join(tmpdir(), "pi-handoff-log-missing-dir", "x", "handoffs.jsonl")),
+    );
   });
 
   it("handoffLogPath sits next to the extension config.json", () => {
@@ -388,7 +395,9 @@ describe("context-alert in the child (luvus-done)", () => {
     for (const handler of handlers[name] ?? []) handler(event, ctx);
   };
 
-  const usageCtx = (tokens: number, percent = 10) => ({ getContextUsage: () => ({ tokens, percent }) });
+  const usageCtx = (tokens: number, percent = 10) => ({
+    getContextUsage: () => ({ tokens, percent }),
+  });
 
   const turnEnd = (stopReason = "stop") => ({
     turnIndex: 0,
@@ -433,7 +442,9 @@ describe("context-alert in the child (luvus-done)", () => {
       fire(handlers, "session_start", undefined, { ui: { setWidget() {} } });
       fire(handlers, "agent_start");
       fire(handlers, "turn_end", turnEnd(), { getContextUsage: () => undefined });
-      fire(handlers, "turn_end", turnEnd(), { getContextUsage: () => ({ tokens: null, percent: null }) });
+      fire(handlers, "turn_end", turnEnd(), {
+        getContextUsage: () => ({ tokens: null, percent: null }),
+      });
       assert.equal(sentMessages.length, 0);
 
       fire(handlers, "turn_end", turnEnd(), usageCtx(150));
@@ -560,7 +571,10 @@ describe("context-alert in the child (luvus-done)", () => {
   });
 
   /** Run the registered `luvus_done` tool with a fake ctx, capturing shutdown. */
-  async function callDone(tools: Array<any>, params: unknown): Promise<{ result: any; shutdown: boolean }> {
+  async function callDone(
+    tools: Array<any>,
+    params: unknown,
+  ): Promise<{ result: any; shutdown: boolean }> {
     const doneTool = tools.find((tool) => tool.name === "luvus_done");
     assert.ok(doneTool, "expected luvus_done to be registered");
     let shutdown = false;
@@ -630,7 +644,12 @@ describe("context-alert in the child (luvus-done)", () => {
     __setLuvusExecForTests__((args) => {
       assert.deepEqual(args, ["session", "list", "--json"]);
       return JSON.stringify({
-        result: { sessions: [{ name: "other", socket_path: "/tmp/other.sock" }, { name: "mbv", socket_path: "/tmp/mbv.sock" }] },
+        result: {
+          sessions: [
+            { name: "other", socket_path: "/tmp/other.sock" },
+            { name: "mbv", socket_path: "/tmp/mbv.sock" },
+          ],
+        },
       });
     });
     try {
@@ -645,12 +664,18 @@ describe("context-alert in the child (luvus-done)", () => {
       const doneTool = tools.find((tool) => tool.name === "luvus_done");
       assert.ok(doneTool, "expected luvus_done to be registered");
       let shutdown = false;
-      await doneTool.execute("tool-id", { handoff: "Goal: X. Done: A. Left: B." }, undefined, undefined, {
-        shutdown: () => {
-          shutdown = true;
+      await doneTool.execute(
+        "tool-id",
+        { handoff: "Goal: X. Done: A. Left: B." },
+        undefined,
+        undefined,
+        {
+          shutdown: () => {
+            shutdown = true;
+          },
+          getContextUsage: () => ({ tokens: 700, percent: 20 }),
         },
-        getContextUsage: () => ({ tokens: 700, percent: 20 }),
-      });
+      );
       assert.equal(shutdown, true);
 
       // Wait for the fire-and-forget rows, then read the log (env is still set).

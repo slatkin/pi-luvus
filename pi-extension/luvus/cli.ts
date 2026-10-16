@@ -13,8 +13,18 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
-import { agentDefinitionPaths, buildSubagentToolAllowlist, loadAgentDefaults } from "./agent-defs.ts";
-import { autoPrune, defaultScratchDir, pruneScratch, pruneSentinels, DEFAULT_PRUNE_MAX_AGE_DAYS } from "./prune.ts";
+import {
+  agentDefinitionPaths,
+  buildSubagentToolAllowlist,
+  loadAgentDefaults,
+} from "./agent-defs.ts";
+import {
+  autoPrune,
+  defaultScratchDir,
+  pruneScratch,
+  pruneSentinels,
+  DEFAULT_PRUNE_MAX_AGE_DAYS,
+} from "./prune.ts";
 import {
   LAUNCH_SPEC_VERSION,
   buildPaneTitle,
@@ -124,11 +134,15 @@ function isFile(path: string): boolean {
  * Require the three Luvus keys the launch needs, from the injected env rather
  * than this process's own, so a test can prove the refusal.
  */
-function assertLuvusEnv(
-  env: NodeJS.ProcessEnv,
-): asserts env is NodeJS.ProcessEnv & { LUVUS_ENV: string; LUVUS_BIN_PATH: string; LUVUS_PANE_ID: string } {
+function assertLuvusEnv(env: NodeJS.ProcessEnv): asserts env is NodeJS.ProcessEnv & {
+  LUVUS_ENV: string;
+  LUVUS_BIN_PATH: string;
+  LUVUS_PANE_ID: string;
+} {
   if (!env.LUVUS_ENV || !env.LUVUS_BIN_PATH || !env.LUVUS_PANE_ID) {
-    throw new Error("must run inside Luvus (LUVUS_ENV, LUVUS_BIN_PATH and LUVUS_PANE_ID must all be set)");
+    throw new Error(
+      "must run inside Luvus (LUVUS_ENV, LUVUS_BIN_PATH and LUVUS_PANE_ID must all be set)",
+    );
   }
 }
 
@@ -292,7 +306,10 @@ function resumeCommand(values: CliValues, deps: CliDeps, placement: SurfacePlace
   let sentPrompt = promptPath;
   if (spec.parent !== undefined) {
     sentPrompt = `${promptPath}.resume.md`;
-    writeFileSync(sentPrompt, `${readFileSync(promptPath, "utf8")}\n${parentFooter(spec.parent, env.LUVUS_PANE_ID)}\n`);
+    writeFileSync(
+      sentPrompt,
+      `${readFileSync(promptPath, "utf8")}\n${parentFooter(spec.parent, env.LUVUS_PANE_ID)}\n`,
+    );
   }
   const paneLine = paneCommandLine(CLI_PATH, launchPath, sentPrompt);
 
@@ -313,7 +330,8 @@ async function runCommand(positionals: string[], deps: CliDeps): Promise<number>
   const promptPath = positionals[1];
 
   const spec = readLaunchSpec(specPath);
-  const resolved = spec.command === "pi" ? resolvePiCommand({ env: deps.env ?? process.env }) : [spec.command];
+  const resolved =
+    spec.command === "pi" ? resolvePiCommand({ env: deps.env ?? process.env }) : [spec.command];
   const command = resolved[0];
   const runDeps: RunSpecDeps = {
     env: deps.env,
@@ -321,7 +339,11 @@ async function runCommand(positionals: string[], deps: CliDeps): Promise<number>
     stderr: deps.stderr,
     sleep: deps.sleep,
   };
-  return runSpec({ ...spec, command, args: [...resolved.slice(1), ...spec.args] }, promptPath, runDeps);
+  return runSpec(
+    { ...spec, command, args: [...resolved.slice(1), ...spec.args] },
+    promptPath,
+    runDeps,
+  );
 }
 
 /** Sentinel root, overridable for tests so they never touch the real tmp folder. */
@@ -347,17 +369,22 @@ function pruneCommand(values: CliValues, deps: CliDeps): number {
   const dryRun = values["dry-run"] === true;
   const maxAgeMs = maxAgeDays * 86_400_000;
   const files = pruneScratch(scratch, { maxAgeMs, dryRun });
-  const sentinels = pruneSentinels(sentinelDir(deps.env ?? process.env), { maxAgeMs: 86_400_000, dryRun });
-  write(JSON.stringify({
-    scratch,
-    maxAgeDays,
+  const sentinels = pruneSentinels(sentinelDir(deps.env ?? process.env), {
+    maxAgeMs: 86_400_000,
     dryRun,
-    scanned: files.scanned,
-    deleted: files.deleted,
-    deletedBytes: files.deletedBytes,
-    sentinelScanned: sentinels.scanned,
-    sentinelDeleted: sentinels.deleted,
-  }) + "\n");
+  });
+  write(
+    JSON.stringify({
+      scratch,
+      maxAgeDays,
+      dryRun,
+      scanned: files.scanned,
+      deleted: files.deleted,
+      deletedBytes: files.deletedBytes,
+      sentinelScanned: sentinels.scanned,
+      sentinelDeleted: sentinels.deleted,
+    }) + "\n",
+  );
   return 0;
 }
 

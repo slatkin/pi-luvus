@@ -9,5 +9,5 @@
     "strict": false,
     "types": ["node"]
   },
-  "include": ["pi-extension/**/*.ts", "test/**/*.ts"]
+  "include": ["pi-extension/**/*.ts", "luvus-module/**/*.ts", "skills/**/*.ts", "test/**/*.ts"]
 }
