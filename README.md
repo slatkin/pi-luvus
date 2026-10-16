@@ -63,6 +63,16 @@ The extension reads `config.json` from `~/.pi/agent/extensions/pi-luvus/` (under
 
 Like a bad `status` block, a bad `contextAlert` block stops the extension from loading in the parent pi session.
 
+### Handoff log
+
+When the context alert is on, each subagent child appends one JSON line to `handoffs.jsonl` in the same directory as `config.json` when the alert fires (`"event": "alert"`) and when it ends the session with `luvus_done` and a `handoff` text (`"event": "handoff"`). Each line holds `at` (ISO time), `event`, `luvusSession` (the Luvus server session name, or the socket path when it cannot be resolved, or `null` outside Luvus), `child` (the subagent name), `session` (the child's session file), and `tokens` (the context token count, `null` when unknown); an `alert` line also holds `threshold` as configured (`200000` or `"80%"`). Log writes are best effort: a failed write never blocks the alert, the sidecar, or the shutdown.
+
+Count the completed handoffs:
+
+```bash
+jq -s '[.[] | select(.event == "handoff")] | length' ~/.pi/agent/extensions/pi-luvus/handoffs.jsonl
+```
+
 The `status` and `surface` keys are documented in [Configuration](docs/guide.md#configuration).
 
 ## Install

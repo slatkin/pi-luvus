@@ -334,6 +334,25 @@ export async function pushNotificationAsync(
   await luvusAsync(["ui", "notification", "push", "--text", text, "--level", level]);
 }
 
+/** Shape of the `session list --json` `.result` payload this backend consumes. */
+export interface LuvusSessionList {
+  sessions?: Array<{ name?: unknown; socket_path?: unknown; [key: string]: unknown }>;
+  [key: string]: unknown;
+}
+
+/**
+ * List the server sessions (`luvus session list --json`) through the async
+ * call path, and so through the test seam. Returns the parsed `.result`
+ * object, or null on any failure — callers treat a failed list as unknown.
+ */
+export async function listLuvusSessionsAsync(): Promise<LuvusSessionList | null> {
+  try {
+    return (await luvusAsync(["session", "list", "--json"])) as LuvusSessionList;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Send one Escape keypress to an active pane.
  */

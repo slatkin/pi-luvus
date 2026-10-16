@@ -3,6 +3,9 @@
  * openspec/changes/context-alert-handoff (D1): `parseStatusConfig` calls
  * `parseContextAlertConfig` and stores the result on `StatusConfig`.
  */
+import { appendFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { getDefaultConfigPath } from "./status.ts";
 
 export const DEFAULT_CONTEXT_ALERT_THRESHOLD_TOKENS = 200_000;
 
@@ -72,6 +75,68 @@ export function handoffNudgeText(): string {
 
 function invalidContextAlertConfig(source: string, message: string): never {
   throw new Error(`Invalid subagent status config in ${source}: ${message}`);
+}
+
+/**
+ * The configured threshold in its configured form: a token count as a number,
+ * or a percentage as the string the config used, e.g. `"80%"` (D6).
+ */
+export function formatThresholdValue(threshold: ContextAlertThreshold): number | string {
+  return threshold.kind === "tokens" ? threshold.value : `${threshold.value}%`;
+}
+
+/** Path of the handoff log: `handoffs.jsonl` in the config.json directory (D6). */
+export function handoffLogPath(): string {
+  return join(dirname(getDefaultConfigPath()), "handoffs.jsonl");
+}
+
+/** One `handoffs.jsonl` line (D6). */
+export interface HandoffLogRow {
+  at: string;
+  event: "alert" | "handoff";
+  /** Server session name, the socket path when it cannot be resolved, or null outside Luvus. */
+  luvusSession: string | null;
+  child: string;
+  session: string;
+  tokens: number | null;
+  /** Only on `alert` rows: the threshold as configured. */
+  threshold?: number | string;
+}
+
+/**
+ * From a parsed `luvus session list --json` payload, return the name whose
+ * `socket_path` equals `socketPath`. When nothing matches — or the list is
+ * missing or malformed — return the socket path itself. With no socket path
+ * (outside Luvus) return null.
+ */
+export function matchLuvusSession(list: unknown, socketPath: string | undefined): string | null {
+  if (!socketPath) return null;
+  const sessions = (list as { sessions?: unknown } | null | undefined)?.sessions;
+  if (Array.isArray(sessions)) {
+    for (const session of sessions) {
+      if (
+        session != null &&
+        typeof session === "object" &&
+        (session as { socket_path?: unknown }).socket_path === socketPath
+      ) {
+        const name = (session as { name?: unknown }).name;
+        if (typeof name === "string" && name !== "") return name;
+      }
+    }
+  }
+  return socketPath;
+}
+
+/**
+ * Append one JSON line. Best effort: every error is caught, so a failed log
+ * write never delays or prevents the alert, the sidecar write, or shutdown.
+ */
+export function appendHandoffLog(row: HandoffLogRow, path: string): void {
+  try {
+    appendFileSync(path, `${JSON.stringify(row)}\n`);
+  } catch {
+    // Best effort — the log is diagnostic only.
+  }
 }
 
 /** Same key check as `rejectUnsupportedKeys` in status.ts, kept local so this module stays dependency-free. */

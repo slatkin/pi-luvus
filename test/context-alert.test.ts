@@ -6,11 +6,15 @@ import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   alertText,
+  appendHandoffLog,
+  handoffLogPath,
   handoffNudgeText,
+  matchLuvusSession,
   parseContextAlertConfig,
   shouldAlert,
   DEFAULT_CONTEXT_ALERT_THRESHOLD_TOKENS,
 } from "../pi-extension/luvus/context-alert.ts";
+import { listLuvusSessionsAsync, __setLuvusExecForTests__ } from "../pi-extension/luvus/luvus.ts";
 import { loadStatusConfig, parseStatusConfig } from "../pi-extension/luvus/status.ts";
 import subagentDoneExtension from "../pi-extension/luvus/luvus-done.ts";
 
@@ -144,6 +148,142 @@ describe("context-alert trigger", () => {
   });
 });
 
+describe("context-alert handoff log", () => {
+  it("listLuvusSessionsAsync returns the parsed sessions object through the exec seam", async () => {
+    const calls: string[][] = [];
+    __setLuvusExecForTests__((args) => {
+      calls.push(args);
+      return JSON.stringify({
+        result: { sessions: [{ name: "mbv", socket_path: "/tmp/mbv.sock" }] },
+      });
+    });
+    try {
+      assert.deepEqual(await listLuvusSessionsAsync(), {
+        sessions: [{ name: "mbv", socket_path: "/tmp/mbv.sock" }],
+      });
+      assert.deepEqual(calls, [["session", "list", "--json"]]);
+    } finally {
+      __setLuvusExecForTests__(null);
+    }
+  });
+
+  it("listLuvusSessionsAsync returns null on a failed call or outside Luvus", async () => {
+    // A Luvus error envelope, and a thrown call, both resolve to null.
+    __setLuvusExecForTests__(() => JSON.stringify({ error: { message: "no such session" } }));
+    try {
+      assert.equal(await listLuvusSessionsAsync(), null);
+    } finally {
+      __setLuvusExecForTests__(null);
+    }
+    __setLuvusExecForTests__(() => {
+      throw new Error("boom");
+    });
+    try {
+      assert.equal(await listLuvusSessionsAsync(), null);
+    } finally {
+      __setLuvusExecForTests__(null);
+    }
+
+    // With no seam and no LUVUS_BIN_PATH the real path fails cleanly too.
+    const saved = process.env.LUVUS_BIN_PATH;
+    delete process.env.LUVUS_BIN_PATH;
+    try {
+      assert.equal(await listLuvusSessionsAsync(), null);
+    } finally {
+      if (saved === undefined) delete process.env.LUVUS_BIN_PATH;
+      else process.env.LUVUS_BIN_PATH = saved;
+    }
+  });
+
+  it("matchLuvusSession returns the name whose socket_path matches", () => {
+    const list = {
+      sessions: [
+        { name: "other", socket_path: "/a.sock" },
+        { name: "mbv", socket_path: "/b.sock" },
+      ],
+    };
+    assert.equal(matchLuvusSession(list, "/b.sock"), "mbv");
+  });
+
+  it("no match and no list both fall back to the socket path", () => {
+    const cases: unknown[] = [
+      { sessions: [{ name: "x", socket_path: "/a.sock" }] },
+      { sessions: [] },
+      {},
+      null,
+      undefined,
+      "junk",
+    ];
+    for (const list of cases) {
+      assert.equal(matchLuvusSession(list, "/b.sock"), "/b.sock", `list ${JSON.stringify(list)}`);
+    }
+  });
+
+  it("no socket path gives null, even with a matching entry", () => {
+    const list = { sessions: [{ name: "mbv", socket_path: "/b.sock" }] };
+    assert.equal(matchLuvusSession(list, undefined), null);
+    assert.equal(matchLuvusSession(list, ""), null);
+  });
+
+  it("appendHandoffLog appends one JSON line per row", () => {
+    const dir = mkdtempSync(join(tmpdir(), "pi-handoff-log-"));
+    const path = join(dir, "handoffs.jsonl");
+    try {
+      const row = {
+        at: "2026-10-16T10:00:00.000Z",
+        event: "alert" as const,
+        luvusSession: "mbv",
+        child: "worker",
+        session: "/tmp/s.jsonl",
+        tokens: 201000,
+        threshold: 200000,
+      };
+      appendHandoffLog(row, path);
+      appendHandoffLog({ ...row, event: "handoff" as const, tokens: null, threshold: undefined }, path);
+      const lines = readFileSync(path, "utf8").trim().split("\n");
+      assert.equal(lines.length, 2);
+      assert.deepEqual(JSON.parse(lines[0]), row);
+      assert.deepEqual(JSON.parse(lines[1]), {
+        at: "2026-10-16T10:00:00.000Z",
+        event: "handoff",
+        luvusSession: "mbv",
+        child: "worker",
+        session: "/tmp/s.jsonl",
+        tokens: null,
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("appendHandoffLog does not throw when the write fails", () => {
+    const row = {
+      at: "2026-10-16T10:00:00.000Z",
+      event: "alert" as const,
+      luvusSession: null,
+      child: "worker",
+      session: "",
+      tokens: null,
+      threshold: 100,
+    };
+    // A path inside a directory that does not exist must not throw.
+    assert.doesNotThrow(() => appendHandoffLog(row, join(tmpdir(), "pi-handoff-log-missing-dir", "x", "handoffs.jsonl")));
+  });
+
+  it("handoffLogPath sits next to the extension config.json", () => {
+    const dir = mkdtempSync(join(tmpdir(), "pi-handoff-path-"));
+    const saved = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = dir;
+    try {
+      assert.equal(handoffLogPath(), join(dir, "extensions", "pi-luvus", "handoffs.jsonl"));
+    } finally {
+      if (saved === undefined) delete process.env.PI_CODING_AGENT_DIR;
+      else process.env.PI_CODING_AGENT_DIR = saved;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("context-alert in the child (luvus-done)", () => {
   let freshImports = 0;
 
@@ -153,6 +293,8 @@ describe("context-alert in the child (luvus-done)", () => {
     sentMessages: Array<{ message: string; opts?: any }>;
     sessionFile: string;
     configPath: string;
+    /** The freshly imported luvus-done module instance (for its test exports). */
+    mod: any;
     restore: () => void;
   }
 
@@ -204,8 +346,9 @@ describe("context-alert in the child (luvus-done)", () => {
       },
     };
 
+    let mod: any;
     try {
-      const mod = await import(
+      mod = await import(
         `${pathToFileURL(join(REPO_ROOT, "pi-extension", "luvus", "luvus-done.ts")).href}?ctxalert=${++freshImports}`
       );
       (mod.default as (pi: unknown) => void)(mockPi);
@@ -221,6 +364,7 @@ describe("context-alert in the child (luvus-done)", () => {
       sentMessages,
       sessionFile,
       configPath,
+      mod,
       restore: () => {
         restoreEnv(saved);
         rmSync(dir, { recursive: true, force: true });
@@ -469,6 +613,71 @@ describe("context-alert in the child (luvus-done)", () => {
       // No sidecar, no shutdown: the session stays open and the model can retry.
       assert.equal(existsSync(`${sessionFile}.exit`), false);
     } finally {
+      restore();
+    }
+  });
+
+  it("an alert followed by a handoff writes two log rows with the same session", async () => {
+    const { handlers, tools, sentMessages, sessionFile, mod, restore } = await loadChildExtension(
+      {
+        PI_LUVUS_NUDGE_DISABLE: "1",
+        PI_LUVUS_NAME: "LogChild",
+        LUVUS_BIN_PATH: "in-process",
+        LUVUS_SOCKET_PATH: "/tmp/mbv.sock",
+      },
+      JSON.stringify({ contextAlert: { enabled: true, threshold: 100 } }),
+    );
+    __setLuvusExecForTests__((args) => {
+      assert.deepEqual(args, ["session", "list", "--json"]);
+      return JSON.stringify({
+        result: { sessions: [{ name: "other", socket_path: "/tmp/other.sock" }, { name: "mbv", socket_path: "/tmp/mbv.sock" }] },
+      });
+    });
+    try {
+      fire(handlers, "session_start", undefined, { ui: { setWidget() {} } });
+      fire(handlers, "agent_start");
+
+      // The alert fires and starts its log row without waiting for it.
+      fire(handlers, "turn_end", turnEnd(), usageCtx(500));
+      assert.equal(sentMessages.length, 1);
+
+      // The handoff exit starts its own row, also without waiting.
+      const doneTool = tools.find((tool) => tool.name === "luvus_done");
+      assert.ok(doneTool, "expected luvus_done to be registered");
+      let shutdown = false;
+      await doneTool.execute("tool-id", { handoff: "Goal: X. Done: A. Left: B." }, undefined, undefined, {
+        shutdown: () => {
+          shutdown = true;
+        },
+        getContextUsage: () => ({ tokens: 700, percent: 20 }),
+      });
+      assert.equal(shutdown, true);
+
+      // Wait for the fire-and-forget rows, then read the log (env is still set).
+      await Promise.all(mod.__handoffLogWrites__);
+      const lines = readFileSync(handoffLogPath(), "utf8").trim().split("\n");
+      assert.equal(lines.length, 2);
+      const alertRow = JSON.parse(lines[0]);
+      const handoffRow = JSON.parse(lines[1]);
+
+      assert.equal(alertRow.event, "alert");
+      assert.equal(alertRow.child, "LogChild");
+      assert.equal(alertRow.session, sessionFile);
+      assert.equal(alertRow.tokens, 500);
+      assert.equal(alertRow.threshold, 100);
+      assert.match(alertRow.at, /^\d{4}-\d{2}-\d{2}T/);
+
+      assert.equal(handoffRow.event, "handoff");
+      assert.equal(handoffRow.child, "LogChild");
+      assert.equal(handoffRow.session, sessionFile);
+      assert.equal(handoffRow.tokens, 700);
+      assert.equal(handoffRow.threshold, undefined);
+
+      // Both rows resolved the same server session from the socket path.
+      assert.equal(alertRow.luvusSession, "mbv");
+      assert.equal(handoffRow.luvusSession, "mbv");
+    } finally {
+      __setLuvusExecForTests__(null);
       restore();
     }
   });

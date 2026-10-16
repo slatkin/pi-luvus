@@ -8,6 +8,8 @@
  * - Publishes a terminal Luvus status (`done`, or `blocked` with the ping
  *   question / error text) before each sidecar write, so an external
  *   orchestrator can wait on the pane instead of scraping the screen
+ * - Appends one `handoffs.jsonl` row per context alert and per handoff exit,
+ *   fire-and-forget, so the alert and handoff events can be counted later
  * - Respects PI_DENY_TOOLS for its own tools: a denied tool is not registered,
  *   `caller_ping` included; `luvus_done` is never denied.
  *
@@ -26,12 +28,18 @@ import { createSubagentActivityRecorder } from "./activity.ts";
 import { createLuvusStatusReporter } from "./luvus-status.ts";
 import {
   alertText,
+  appendHandoffLog,
   DEFAULT_CONTEXT_ALERT_THRESHOLD_TOKENS,
+  formatThresholdValue,
+  handoffLogPath,
   handoffNudgeText,
+  matchLuvusSession,
   shouldAlert,
   type ContextAlertConfig,
   type ContextUsageLike,
+  type HandoffLogRow,
 } from "./context-alert.ts";
+import { listLuvusSessionsAsync } from "./luvus.ts";
 import { loadStatusConfig } from "./status.ts";
 
 export function shouldMarkUserTookOver(agentStarted: boolean): boolean {
@@ -137,6 +145,42 @@ export function loadContextAlertConfig(configPath?: string): ContextAlertConfig 
 
 const contextAlertConfig = loadContextAlertConfig();
 
+/**
+ * Pending handoff log writes, so tests can wait for the fire-and-forget rows
+ * (D6) without the production callers awaiting them.
+ */
+export const __handoffLogWrites__: Promise<void>[] = [];
+
+/**
+ * The server session for log rows, resolved once per process (D6): the parsed
+ * `session list --json` payload matched against `LUVUS_SOCKET_PATH`. Outside
+ * Luvus (no `LUVUS_BIN_PATH`) nothing is called and the value is null.
+ */
+let luvusSessionForLog: Promise<string | null> | null = null;
+
+function resolveLuvusSessionForLog(): Promise<string | null> {
+  luvusSessionForLog ??= (async () => {
+    if (!process.env.LUVUS_BIN_PATH) return null;
+    const list = await listLuvusSessionsAsync();
+    return matchLuvusSession(list, process.env.LUVUS_SOCKET_PATH);
+  })();
+  return luvusSessionForLog;
+}
+
+/**
+ * Fire-and-forget handoff log row (D6): never awaited by the caller, and it
+ * can never throw here — the append itself and the whole async chain are
+ * guarded, so a failed log write cannot prevent the alert, the sidecar write,
+ * or shutdown.
+ */
+function writeHandoffLogRow(row: Omit<HandoffLogRow, "luvusSession">): void {
+  const write = (async () => {
+    appendHandoffLog({ ...row, luvusSession: await resolveLuvusSessionForLog() }, handoffLogPath());
+  })();
+  __handoffLogWrites__.push(write);
+  void write.catch(() => {});
+}
+
 export default function (pi: ExtensionAPI) {
   let toolNames: string[] = [];
   let denied: string[] = [];
@@ -241,6 +285,14 @@ export default function (pi: ExtensionAPI) {
     userTookOver = true;
     const text = alertText(usage.tokens, contextAlertConfig.threshold);
     void pi.sendUserMessage(text, { deliverAs: "steer" });
+    writeHandoffLogRow({
+      at: new Date().toISOString(),
+      event: "alert",
+      child: process.env.PI_LUVUS_NAME ?? "",
+      session: process.env.PI_LUVUS_SESSION ?? "",
+      tokens: usage.tokens,
+      threshold: formatThresholdValue(contextAlertConfig.threshold),
+    });
   }
 
   function renderWidget(ctx: { ui: { setWidget: Function } }, _theme: any) {
@@ -532,6 +584,18 @@ export default function (pi: ExtensionAPI) {
             typeof params.handoff === "string" ? { type: "handoff", message: params.handoff } : { type: "done" },
           ),
         );
+      }
+      // Only a handoff exit logs the `handoff` row; a plain done does not.
+      // The token count comes from the usage at the exit itself (D6).
+      if (typeof params.handoff === "string") {
+        const usage = (ctx as { getContextUsage?: () => ContextUsageLike | undefined } | undefined)?.getContextUsage?.();
+        writeHandoffLogRow({
+          at: new Date().toISOString(),
+          event: "handoff",
+          child: process.env.PI_LUVUS_NAME ?? "",
+          session: sessionFile ?? "",
+          tokens: typeof usage?.tokens === "number" ? usage.tokens : null,
+        });
       }
       ctx.shutdown();
       return {
