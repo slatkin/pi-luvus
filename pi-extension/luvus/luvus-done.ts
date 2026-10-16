@@ -22,6 +22,15 @@ import { Type } from "@sinclair/typebox";
 import { writeFileSync } from "node:fs";
 import { createSubagentActivityRecorder } from "./activity.ts";
 import { createLuvusStatusReporter } from "./luvus-status.ts";
+import {
+  alertText,
+  DEFAULT_CONTEXT_ALERT_THRESHOLD_TOKENS,
+  handoffNudgeText,
+  shouldAlert,
+  type ContextAlertConfig,
+  type ContextUsageLike,
+} from "./context-alert.ts";
+import { loadStatusConfig } from "./status.ts";
 
 export function shouldMarkUserTookOver(agentStarted: boolean): boolean {
   return agentStarted;
@@ -105,6 +114,27 @@ export function parseDeniedTools(rawValue: string | undefined): string[] {
     .filter(Boolean);
 }
 
+const ALERT_OFF_CONFIG: ContextAlertConfig = {
+  enabled: false,
+  threshold: { kind: "tokens", value: DEFAULT_CONTEXT_ALERT_THRESHOLD_TOKENS },
+};
+
+/**
+ * Load the `contextAlert` block once at module load (D2). A bad config block
+ * turns the alert off but must not stop the child from loading: the control
+ * tools, the status reporter and the sidecar writes still register, and the
+ * parent (or the user's own pi session) already reports the config error.
+ */
+export function loadContextAlertConfig(configPath?: string): ContextAlertConfig {
+  try {
+    return loadStatusConfig(configPath).contextAlert;
+  } catch {
+    return ALERT_OFF_CONFIG;
+  }
+}
+
+const contextAlertConfig = loadContextAlertConfig();
+
 export default function (pi: ExtensionAPI) {
   let toolNames: string[] = [];
   let denied: string[] = [];
@@ -146,6 +176,7 @@ export default function (pi: ExtensionAPI) {
 
   let doneCalled = false;
   let userInputAfterAgentEnd = false;
+  let alertFired = false;
   let nudgeTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Cancel and forget the pending completion reminder, if any. */
@@ -172,8 +203,42 @@ export default function (pi: ExtensionAPI) {
       nudgeTimer = null;
       if (doneCalled || userInputAfterAgentEnd) return;
 
-      pi.sendUserMessage(NUDGE_TEXT, { deliverAs: "followUp" });
+      // After a context alert the generic text is wrong: the last message was
+      // NOT already delivered as the report, and the child must finish with a
+      // handoff (D3).
+      pi.sendUserMessage(alertFired ? handoffNudgeText() : NUDGE_TEXT, { deliverAs: "followUp" });
     }, NUDGE_DELAY_MS);
+  }
+
+  /**
+   * D3: after each turn ends, fire the context alert at most once per
+   * process when the context usage is at or above the threshold. The alert is
+   * a takeover: `userTookOver` is set BEFORE the steer is sent, so even a
+   * steer that arrives late (after the agent loop's steer read) cannot leave
+   * an auto-exit child exiting with a plain `done` after the alert.
+   */
+  function checkContextAlert(event: unknown, ctx: unknown): void {
+    if (alertFired || doneCalled || !contextAlertConfig.enabled) return;
+    if (!process.env.PI_LUVUS_SESSION) return;
+
+    // Error and aborted turns end the run without the steer read; a steer
+    // sent for them would only land on the next prompt.
+    const message = (event as { message?: { role?: string; stopReason?: string } })?.message;
+    if (
+      message?.role === ASSISTANT_ROLE &&
+      (message.stopReason === "error" || message.stopReason === "aborted")
+    ) {
+      return;
+    }
+
+    const usage = (ctx as { getContextUsage?: () => ContextUsageLike | undefined } | undefined)?.getContextUsage?.();
+    if (!shouldAlert(usage, contextAlertConfig.threshold)) return;
+    if (typeof usage.tokens !== "number") return;
+
+    alertFired = true;
+    userTookOver = true;
+    const text = alertText(usage.tokens, contextAlertConfig.threshold);
+    void pi.sendUserMessage(text, { deliverAs: "steer" });
   }
 
   function renderWidget(ctx: { ui: { setWidget: Function } }, _theme: any) {
@@ -236,6 +301,7 @@ export default function (pi: ExtensionAPI) {
     doneCalled = false;
     userInputAfterAgentEnd = false;
     userTookOver = false;
+    alertFired = false;
     clearNudgeTimer();
     const tools = pi.getAllTools();
     toolNames = tools.map((t) => t.name).sort();
@@ -336,8 +402,9 @@ export default function (pi: ExtensionAPI) {
     recorder.turnStart((event as any).turnIndex);
   });
 
-  pi.on("turn_end", (event) => {
+  pi.on("turn_end", (event, ctx) => {
     recorder.turnEnd((event as any).turnIndex);
+    checkContextAlert(event, ctx);
   });
 
   pi.on("before_provider_request", () => {

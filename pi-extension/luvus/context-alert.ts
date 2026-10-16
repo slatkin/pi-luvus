@@ -15,6 +15,61 @@ export interface ContextAlertConfig {
   threshold: ContextAlertThreshold;
 }
 
+/** Structural copy of pi's `ContextUsage`; `tokens`/`percent` are null when unknown. */
+export interface ContextUsageLike {
+  tokens: number | null;
+  percent: number | null;
+}
+
+/**
+ * True only when the needed field of the usage (`tokens` for a token
+ * threshold, `percent` for a percentage threshold) is a number at or above
+ * the threshold. Unknown usage and unknown fields never alert.
+ */
+export function shouldAlert(usage: ContextUsageLike | undefined, threshold: ContextAlertThreshold): boolean {
+  if (!usage) return false;
+  if (threshold.kind === "tokens") {
+    return typeof usage.tokens === "number" && usage.tokens >= threshold.value;
+  }
+  return typeof usage.percent === "number" && usage.percent >= threshold.value;
+}
+
+/** Human-readable threshold, as used in the alert text (D3). */
+export function formatAlertThreshold(threshold: ContextAlertThreshold): string {
+  return threshold.kind === "tokens"
+    ? `${threshold.value} tokens`
+    : `${threshold.value}% of the context window`;
+}
+
+/**
+ * The steer message fired at `turn_end` when the usage crosses the threshold
+ * (D3). Names the token count and the threshold, and tells the child to stop,
+ * commit or list uncommitted work, and finish with `luvus_done` + `handoff`.
+ */
+export function alertText(tokens: number, threshold: ContextAlertThreshold): string {
+  return [
+    `[Context alert] This session has used ${tokens} context tokens (threshold: ${formatAlertThreshold(threshold)}).`,
+    "Stop the task after this turn. Commit the finished work, or list the uncommitted changes.",
+    "Write a handoff that a fresh agent can continue from: the goal, what is done, what is left, and the current state.",
+    "Send it to the parent the way your instructions say.",
+    "Then end the session with the luvus_done tool, passing that handoff text in its `handoff` parameter.",
+  ].join("\n");
+}
+
+/**
+ * The completion nudge sent when the alert has fired (D3). Asks for
+ * `luvus_done` with `handoff`; unlike the generic nudge it does not claim that
+ * the last message was already delivered as the report.
+ */
+export function handoffNudgeText(): string {
+  return [
+    "[Automated reminder] Your last turn ended but this session is still open, and your context crossed the alert threshold earlier.",
+    "Call the luvus_done tool now, with your handoff text in its `handoff` parameter, to end the session and hand the task to a fresh agent.",
+    "If you are blocked and need input from the caller, call caller_ping with your question.",
+    "Otherwise, continue working.",
+  ].join("\n");
+}
+
 function invalidContextAlertConfig(source: string, message: string): never {
   throw new Error(`Invalid subagent status config in ${source}: ${message}`);
 }
