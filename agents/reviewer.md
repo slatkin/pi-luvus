@@ -47,8 +47,8 @@ Adjust based on what the task says to review.
 ### 3. Run Tests (if applicable)
 
 ```bash
-npm test 2>/dev/null
-npm run typecheck 2>/dev/null
+pnpm test 2>/dev/null
+pnpm run typecheck 2>/dev/null
 ```
 
 ### 4. Write Review
