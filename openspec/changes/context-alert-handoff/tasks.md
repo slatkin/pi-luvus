@@ -2,8 +2,8 @@
 
 ## 1. Config
 
-- [ ] 1.1 Add `parseContextAlertConfig` to new `pi-extension/luvus/context-alert.ts` (D1), call it from `parseStatusConfig` so that `StatusConfig` gets `contextAlert`, and add `test/context-alert.test.ts` to `scripts.test` in `package.json`. Verify with `test/context-alert.test.ts`: no block → off, `{"enabled":true}` → 200000 tokens, `150000`, `"80%"`, `"80.5%"`, unknown key error, and one table test where each invalid threshold (`0`, `-5`, `1.5`, `"0%"`, `"120%"`, `"80"`, `"abc%"`, `true`) is an error that names `contextAlert.threshold`. Confirm that `npm test` runs the new file.
-- [ ] 1.2 Add `contextAlert` to `config.json.example` and the README configuration table, with the compaction-point note and the note that a bad block stops the extension from loading in the parent (D7). Verify that the existing config tests still pass and `loadStatusConfig` loads the updated example.
+- [x] 1.1 Add `parseContextAlertConfig` to new `pi-extension/luvus/context-alert.ts` (D1), call it from `parseStatusConfig` so that `StatusConfig` gets `contextAlert`, and add `test/context-alert.test.ts` to `scripts.test` in `package.json`. Verify with `test/context-alert.test.ts`: no block → off, `{"enabled":true}` → 200000 tokens, `150000`, `"80%"`, `"80.5%"`, unknown key error, and one table test where each invalid threshold (`0`, `-5`, `1.5`, `"0%"`, `"120%"`, `"80"`, `"abc%"`, `true`) is an error that names `contextAlert.threshold`. Confirm that `npm test` runs the new file.
+- [x] 1.2 Add `contextAlert` to `config.json.example` and the README configuration table, with the compaction-point note and the note that a bad block stops the extension from loading in the parent (D7). Verify that the existing config tests still pass and `loadStatusConfig` loads the updated example.
 
 ## 2. Alert in the child
 
