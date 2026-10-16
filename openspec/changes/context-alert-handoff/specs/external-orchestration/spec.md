@@ -36,8 +36,12 @@ After the child exits, the skill-path run wrapper SHALL print `__SUBAGENT_DONE_<
 ## ADDED Requirements
 
 ### Requirement: Skill documents the handoff sidecar
-`SKILL.md` SHALL tell the orchestrator that a child can end with `{"type":"handoff","message":...}` in `<session>.exit` when the context alert is on. It SHALL say that the task is not complete, that the handoff text is in the sidecar (and usually also in the child's report), that the pane closes itself after the close grace, and that the orchestrator continues the task with a new child through `start`, with the handoff text in the brief.
+`SKILL.md` SHALL tell the orchestrator that a child can end with `{"type":"handoff","message":...}` in `<session>.exit`. It SHALL say that the task is not complete, that the handoff text is in the sidecar, that the pane closes itself after the close grace as for `done`, and that the orchestrator continues the task with a new child through `start`, with the handoff text in the brief.
 
 #### Scenario: Orchestrator reads a handoff
 - **WHEN** an orchestrator follows `SKILL.md` and finds a `handoff` sidecar
 - **THEN** the skill tells it to start a new child with the handoff text in its brief, not to resume the old session
+
+#### Scenario: Pane gone after the grace
+- **WHEN** a `wait` on a child's pane finds no pane after the close grace
+- **THEN** the skill tells the orchestrator to read `<session>.exit`, where `done` means finished and `handoff` means continue with a new child

@@ -22,7 +22,7 @@ The extension `config.json` SHALL accept an optional `contextAlert` object with 
 - **THEN** loading the config fails with an error that names the key
 
 ### Requirement: Threshold forms
-`threshold` SHALL be a positive integer, read as a count of context tokens, or a string of a number followed by `%`, read as a percentage of the model's context window. A percentage MUST be greater than 0 and not more than 100. Any other value MUST be a config error. The configured value SHALL be used as it is, with no limit from the model's window or compaction settings.
+`threshold` SHALL be a positive integer, read as a count of context tokens, or a string of a decimal number (for example `80` or `80.5`) followed by `%`, read as a percentage of the model's context window. A percentage MUST be greater than 0 and not more than 100. Any other value MUST be a config error. The configured value SHALL be used as it is, with no limit from the model's window or compaction settings.
 
 #### Scenario: Absolute threshold
 - **WHEN** `threshold` is `150000`
@@ -33,11 +33,11 @@ The extension `config.json` SHALL accept an optional `contextAlert` object with 
 - **THEN** the alert compares the context usage percentage with 80
 
 #### Scenario: Invalid threshold
-- **WHEN** `threshold` is `0`, `-5`, `"0%"`, `"120%"`, `"80"`, or `true`
+- **WHEN** `threshold` is `0`, `-5`, `1.5`, `"0%"`, `"120%"`, `"80"`, `"abc%"`, or `true`
 - **THEN** loading the config fails with an error that names `contextAlert.threshold`
 
 ### Requirement: Alert trigger
-When the alert is on, a subagent child (a session with `PI_LUVUS_SESSION` set) SHALL check its current context usage after each turn ends. The alert SHALL fire when the usage is at or above the threshold. A check where the usage is unknown (for example just after a compaction) SHALL do nothing. The alert SHALL fire at most one time for each child session. A session without `PI_LUVUS_SESSION` SHALL never fire the alert.
+When the alert is on, a subagent child (a session with `PI_LUVUS_SESSION` set) SHALL check its current context usage after each turn ends, and SHALL fire the alert when the usage is at or above the threshold. A check where the usage is unknown SHALL do nothing. The alert SHALL fire at most one time for each pi process. A session without `PI_LUVUS_SESSION` SHALL never fire the alert.
 
 #### Scenario: Threshold reached
 - **WHEN** the alert is on with threshold 200000 and a turn ends with 201000 context tokens
@@ -52,8 +52,12 @@ When the alert is on, a subagent child (a session with `PI_LUVUS_SESSION` set) S
 - **THEN** no second alert fires
 
 #### Scenario: Usage unknown
-- **WHEN** a turn ends and the context token count is unknown
+- **WHEN** a turn ends and pi gives no context usage, or no token count (for example just after a compaction)
 - **THEN** no alert fires for that turn, and a later turn can still fire it
+
+#### Scenario: Resume in a new process
+- **WHEN** a session that already got the alert is resumed in a new pi process and a turn ends above the threshold
+- **THEN** the alert fires again in that process
 
 #### Scenario: Alert off
 - **WHEN** `contextAlert.enabled` is `false` and a turn ends above the threshold
@@ -69,6 +73,24 @@ The alert SHALL reach the child as a steer user message. The message SHALL state
 #### Scenario: Message content
 - **WHEN** the alert fires at 201000 tokens with threshold 200000
 - **THEN** the child receives one steer message that contains `201000`, `200000`, and `luvus_done` with `handoff`
+
+### Requirement: Alert is a takeover
+The alert message SHALL count as input after the first agent run, so it marks the session as taken over, as for any other input. An auto-exit child SHALL therefore not auto-exit after the alert. When it ends a turn normally without calling `luvus_done`, the session SHALL stay open and the completion nudge path SHALL apply.
+
+#### Scenario: Auto-exit child ignores the alert
+- **WHEN** an auto-exit child gets the alert and then ends a turn normally without calling `luvus_done`
+- **THEN** no sidecar is written, the session stays open, and the completion nudge is scheduled
+
+### Requirement: Nudge after the alert
+When the alert has fired, the completion nudge SHALL tell the child to end the session with `luvus_done` and the handoff text in its `handoff` parameter. It SHALL NOT say that the last message was already delivered as the report. Without an alert, the nudge text SHALL not change.
+
+#### Scenario: Nudge text after the alert
+- **WHEN** the alert has fired and the completion nudge is delivered
+- **THEN** the nudge names `luvus_done` with `handoff` and does not say that the last message was already delivered
+
+#### Scenario: Nudge text without an alert
+- **WHEN** the alert has not fired and the completion nudge is delivered
+- **THEN** the nudge text is the same as before this change
 
 ### Requirement: Handoff log
 The child SHALL append one JSON line to `handoffs.jsonl` in the extension config directory when the alert fires (`event` `alert`) and when it ends with a handoff (`event` `handoff`). Each line SHALL hold `at` (ISO time), `event`, `luvusSession`, `child`, `session`, and `tokens`. An `alert` line SHALL also hold `threshold`. Writing the log SHALL be best effort and SHALL NOT delay or prevent the alert, the sidecar write, or shutdown.
