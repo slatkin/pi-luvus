@@ -26,8 +26,8 @@
 
 ## 5. Integration checks
 
-- [ ] 5.1 Run `npm test` and `npx tsc --noEmit`, and verify that both pass, with `external-orchestration` tests unchanged except for the new handoff cases.
-- [ ] 5.2 Run `openspec validate context-alert-handoff --strict` and verify that it passes.
+- [x] 5.1 Run `npm test` and `npx tsc --noEmit`, and verify that both pass, with `external-orchestration` tests unchanged except for the new handoff cases.
+- [x] 5.2 Run `openspec validate context-alert-handoff --strict` and verify that it passes.
 
 ## Workflow follow-up
 
