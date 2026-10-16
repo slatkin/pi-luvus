@@ -515,6 +515,8 @@ interface SubagentResult {
   /** Provider/agent error message when auto-retry exhausted (overload, rate limit, etc.). */
   errorMessage?: string;
   ping?: { name: string; message: string };
+  /** Handoff text when the child ended with a `handoff` sidecar (D5) */
+  handoff?: { message: string };
 }
 
 /**
@@ -1435,6 +1437,7 @@ export const __test__ = {
   getDefaultSessionDirFor,
   getModuleAbortController,
   watchSubagent,
+  deliverSubagentCompletion,
   launchSubagent,
 };
 
@@ -1863,6 +1866,7 @@ async function watchSubagent(
       exitCode: result.exitCode,
       elapsed,
       ping: result.ping,
+      handoff: result.handoff,
       ...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
     };
   } catch (err: any) {
@@ -1931,6 +1935,31 @@ function deliverSubagentCompletion(
         details: {
           name: result.ping.name,
           message: result.ping.message,
+          sessionFile: result.sessionFile,
+          ...options.pingExtraDetails,
+        },
+      },
+      { triggerTurn: true, deliverAs: "steer" },
+    );
+    return;
+  }
+
+  if (result.handoff) {
+    // No `sessionRef` here: its `Resume: pi --session` line tells the parent
+    // to do the opposite of what a handoff needs. The session file still goes
+    // in the content, and the instruction line says to start a new subagent.
+    pi.sendMessage(
+      {
+        customType: "luvus_handoff",
+        content:
+          `Sub-agent "${running.name}" handed off at the context alert (${formatElapsed(result.elapsed)}). The task is not complete.\n\n` +
+          `${result.handoff.message}\n\n` +
+          `Start a new subagent with this handoff in its task. Do not resume this session.\n\n` +
+          `Session: ${result.sessionFile}`,
+        display: true,
+        details: {
+          name: running.name,
+          message: result.handoff.message,
           sessionFile: result.sessionFile,
           ...options.pingExtraDetails,
         },
@@ -2755,6 +2784,43 @@ export default function subagentsExtension(pi: ExtensionAPI) {
         }
 
         const box = new Box(1, 1, (text: string) => theme.bg("customMessageBg", text));
+        box.addChild(new Text(contentLines.join("\n"), 0, 0));
+        return ["", ...box.render(width)];
+      },
+    };
+  });
+
+  // ── luvus_handoff message renderer ──
+  pi.registerMessageRenderer("luvus_handoff", (message, options, theme) => {
+    const details = message.details as any;
+    if (!details) return undefined;
+
+    return {
+      invalidate() {},
+      render(width: number): string[] {
+        const name = details.name ?? "subagent";
+        const agentTag = details.agent ? theme.fg("dim", ` (${details.agent})`) : "";
+        const bgFn = (text: string) => theme.bg("toolSuccessBg", text);
+
+        const icon = theme.fg("accent", "→");
+        const header = `${icon} ${theme.fg("toolTitle", theme.bold(name))}${agentTag} ${theme.fg("dim", "— handed off")}`;
+
+        const contentLines = [header];
+
+        if (options.expanded) {
+          contentLines.push("");
+          contentLines.push(details.message ?? "");
+          if (details.sessionFile) {
+            contentLines.push("");
+            contentLines.push(theme.fg("dim", `Session: ${details.sessionFile}`));
+          }
+        } else {
+          const preview = (details.message ?? "").split("\n")[0].slice(0, width - 10);
+          contentLines.push(theme.fg("dim", preview));
+          contentLines.push(theme.fg("muted", keyHint("app.tools.expand", "to expand")));
+        }
+
+        const box = new Box(1, 1, bgFn);
         box.addChild(new Text(contentLines.join("\n"), 0, 0));
         return ["", ...box.render(width)];
       },

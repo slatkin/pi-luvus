@@ -414,4 +414,62 @@ describe("context-alert in the child (luvus-done)", () => {
       restore();
     }
   });
+
+  /** Run the registered `luvus_done` tool with a fake ctx, capturing shutdown. */
+  async function callDone(tools: Array<any>, params: unknown): Promise<{ result: any; shutdown: boolean }> {
+    const doneTool = tools.find((tool) => tool.name === "luvus_done");
+    assert.ok(doneTool, "expected luvus_done to be registered");
+    let shutdown = false;
+    const result = await doneTool.execute("tool-id", params, undefined, undefined, {
+      shutdown: () => {
+        shutdown = true;
+      },
+    });
+    return { result, shutdown };
+  }
+
+  it("luvus_done with handoff text writes the handoff sidecar and shuts down", async () => {
+    const { tools, sessionFile, restore } = await loadChildExtension(
+      { PI_LUVUS_NUDGE_DISABLE: "1" },
+      JSON.stringify({}),
+    );
+    try {
+      const { shutdown } = await callDone(tools, { handoff: "Goal: X. Done: A. Left: B." });
+      assert.equal(shutdown, true);
+      assert.deepEqual(JSON.parse(readFileSync(`${sessionFile}.exit`, "utf8")), {
+        type: "handoff",
+        message: "Goal: X. Done: A. Left: B.",
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  it("luvus_done without handoff keeps the done sidecar", async () => {
+    const { tools, sessionFile, restore } = await loadChildExtension(
+      { PI_LUVUS_NUDGE_DISABLE: "1" },
+      JSON.stringify({}),
+    );
+    try {
+      const { shutdown } = await callDone(tools, {});
+      assert.equal(shutdown, true);
+      assert.deepEqual(JSON.parse(readFileSync(`${sessionFile}.exit`, "utf8")), { type: "done" });
+    } finally {
+      restore();
+    }
+  });
+
+  it("luvus_done with a whitespace-only handoff throws with no state change", async () => {
+    const { tools, sessionFile, restore } = await loadChildExtension(
+      { PI_LUVUS_NUDGE_DISABLE: "1" },
+      JSON.stringify({}),
+    );
+    try {
+      await assert.rejects(() => callDone(tools, { handoff: "   " }), /handoff/);
+      // No sidecar, no shutdown: the session stays open and the model can retry.
+      assert.equal(existsSync(`${sessionFile}.exit`), false);
+    } finally {
+      restore();
+    }
+  });
 });

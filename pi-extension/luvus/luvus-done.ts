@@ -1,7 +1,9 @@
 /**
  * Extension loaded into sub-agents.
  * - Shows agent identity + available tools as a styled widget above the editor (toggle with Ctrl+J)
- * - Provides a `luvus_done` tool for autonomous agents to self-terminate
+ * - Provides a `luvus_done` tool for autonomous agents to self-terminate,
+ *   optionally with a `handoff` text that writes the `handoff` `.exit` sidecar
+ *   instead of `done` (context-alert handoff, D4)
  * - Nudges any agent that forgets to call luvus_done after generating
  * - Publishes a terminal Luvus status (`done`, or `blocked` with the ping
  *   question / error text) before each sidecar write, so an external
@@ -496,16 +498,40 @@ export default function (pi: ExtensionAPI) {
     description:
       "Call this when your task is complete. It ENDS your session. " +
       "Your last assistant message before this call is the summary that goes to the caller. " +
-      "To send a message and keep working, use luvus_message.",
-    parameters: Type.Object({}),
-    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+      "To send a message and keep working, use luvus_message. " +
+      "Pass `handoff` only after a context alert: it ends the session with a handoff " +
+      "sidecar carrying that text for a fresh agent, and the task is reported as not complete.",
+    parameters: Type.Object({
+      handoff: Type.Optional(
+        Type.String({
+          description:
+            "Handoff text for a fresh agent: the goal, what is done, what is left, and the current state. Use only after a context alert.",
+        }),
+      ),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      // A whitespace-only handoff must fail before any state changes, so the
+      // session stays open and the model can retry with real text (D4).
+      if (params.handoff !== undefined && (typeof params.handoff !== "string" || params.handoff.trim() === "")) {
+        throw new Error(
+          "luvus_done handoff must be a non-empty string: the handoff text a fresh agent needs to continue the task.",
+        );
+      }
       const sessionFile = process.env.PI_LUVUS_SESSION;
       recorder.subagentDone();
       doneCalled = true;
       clearNudgeTimer();
+      // The status is `done` even for a handoff: the child ended cleanly, and
+      // `luvus wait agent-status --status done,blocked` wakes on both. The
+      // orchestrator learns that the task is not complete from the sidecar.
       statusReporter.report("done");
       if (sessionFile) {
-        writeFileSync(`${sessionFile}.exit`, JSON.stringify({ type: "done" }));
+        writeFileSync(
+          `${sessionFile}.exit`,
+          JSON.stringify(
+            typeof params.handoff === "string" ? { type: "handoff", message: params.handoff } : { type: "done" },
+          ),
+        );
       }
       ctx.shutdown();
       return {

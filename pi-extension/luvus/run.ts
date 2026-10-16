@@ -1,7 +1,7 @@
 /**
  * Pane-side run wrapper: start a child from a launch spec with no shell,
  * report its exit, and (skill launches only) close the pane after a `done`
- * sidecar.
+ * or `handoff` sidecar.
  *
  * This is the body of the CLI's `run` subcommand. `runSpec` returns the
  * child's exit code, so the CLI can exit with it.
@@ -157,8 +157,10 @@ export async function runSpec(spec: LaunchSpec, prompt?: string, deps: RunSpecDe
   if (spec.closeOnDone && spec.sessionFile && pane) {
     // Read the sidecar directly rather than through `interpretExitSidecar`:
     // that function maps unknown payloads to `done`, which would close panes
-    // on malformed sidecars.
-    if (readExitSidecar(spec.sessionFile)?.type === "done") {
+    // on malformed sidecars. `handoff` closes like `done` — the child ended
+    // cleanly and its result lives in the sidecar and its session file.
+    const sidecarType = readExitSidecar(spec.sessionFile)?.type;
+    if (sidecarType === "done" || sidecarType === "handoff") {
       if (spec.closeOnDone.graceMs > 0) await sleep(spec.closeOnDone.graceMs);
       closePane(pane);
     }

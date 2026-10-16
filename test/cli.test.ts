@@ -452,6 +452,20 @@ describe("runSpec close on done", () => {
     });
   });
 
+  it("closes the pane after the grace for a handoff sidecar too", async () => {
+    await withTempDirAsync(async (dir) => {
+      const HANDOFF = '{"type":"handoff","message":"Goal: X. Done: A. Left: B."}';
+      const result = await runStubCase(dir, {
+        spec: { closeOnDone: { graceMs: 5000 } },
+        env: { PI_STUB_EXIT_BODY: HANDOFF },
+      });
+      assert.equal(result.stdout, "__SUBAGENT_DONE_0__\n");
+      assert.deepEqual(result.sleptMs, [5000]);
+      assert.deepEqual(result.closedPanes, ["77"]);
+      assert.equal(result.sidecar, HANDOFF);
+    });
+  });
+
   it("leaves the pane open for a malformed sidecar", async () => {
     await withTempDirAsync(async (dir) => {
       const result = await runStubCase(dir, {

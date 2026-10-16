@@ -375,11 +375,13 @@ export function closeSurface(surface: string): void {
 
 export interface PollResult {
   /** How the subagent exited */
-  reason: "done" | "ping" | "sentinel" | "error";
+  reason: "done" | "ping" | "sentinel" | "error" | "handoff";
   /** Shell exit code (from sentinel). 0 for file-based exits. */
   exitCode: number;
   /** Ping data if reason is "ping" */
   ping?: { name: string; message: string };
+  /** Handoff data if reason is "handoff" (context-alert handoff, D5) */
+  handoff?: { message: string };
   /** Error message if reason is "error" (auto-retry exhausted, provider overload, etc.) */
   errorMessage?: string;
 }
@@ -396,6 +398,13 @@ function interpretExitSidecar(data: any): PollResult {
       exitCode: 0,
       ping: { name: data.name, message: data.message },
     };
+  }
+  if (data?.type === "handoff") {
+    const message =
+      typeof data.message === "string" && data.message.trim() !== ""
+        ? data.message
+        : "(handoff text missing)";
+    return { reason: "handoff", exitCode: 0, handoff: { message } };
   }
   if (data?.type === "error") {
     const errorMessage =

@@ -2020,6 +2020,23 @@ describe("luvus.ts interpretExitSidecar", () => {
     assert.match(result.errorMessage ?? "", /no errorMessage/);
   });
 
+  it("decodes handoff payloads", () => {
+    assert.deepEqual(interpretExitSidecar({ type: "handoff", message: "Goal: X. Left: B." }), {
+      reason: "handoff",
+      exitCode: 0,
+      handoff: { message: "Goal: X. Left: B." },
+    });
+  });
+
+  it("falls back to a placeholder when the handoff payload has no usable message", () => {
+    for (const payload of [{ type: "handoff" }, { type: "handoff", message: "   " }, { type: "handoff", message: 42 }]) {
+      const result = interpretExitSidecar(payload);
+      assert.equal(result.reason, "handoff");
+      assert.equal(result.exitCode, 0);
+      assert.deepEqual(result.handoff, { message: "(handoff text missing)" });
+    }
+  });
+
   it("treats unknown payload shapes as done", () => {
     assert.deepEqual(interpretExitSidecar({}), { reason: "done", exitCode: 0 });
     assert.deepEqual(interpretExitSidecar(null), { reason: "done", exitCode: 0 });
@@ -3688,6 +3705,43 @@ describe("luvus backend", () => {
         testApi.runningSubagents.delete(running.id);
       }
     });
+  });
+
+  it("deliverSubagentCompletion sends one luvus_handoff steer for a handoff result", () => {
+    const testApi = (subagentsModule as any).__test__;
+    const sent: Array<{ message: any; opts: any }> = [];
+    const running: any = {
+      id: "handoff-delivery",
+      name: "Worker",
+      task: "implement rows 3.x",
+      surface: "9",
+      startTime: Date.now(),
+      sessionFile: "/tmp/child.jsonl",
+    };
+    testApi.deliverSubagentCompletion(
+      running,
+      {
+        name: "Worker",
+        task: "implement rows 3.x",
+        summary: "",
+        sessionFile: "/tmp/child.jsonl",
+        exitCode: 0,
+        elapsed: 80,
+        handoff: { message: "Goal: X. Done: A. Left: B." },
+      },
+      { sendMessage: (message: any, opts: any) => sent.push({ message, opts }) },
+      { present: () => "should not be presented" },
+    );
+
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].message.customType, "luvus_handoff");
+    assert.deepEqual(sent[0].opts, { triggerTurn: true, deliverAs: "steer" });
+    assert.match(sent[0].message.content, /Sub-agent "Worker" handed off at the context alert \(1m 20s\)\. The task is not complete\./);
+    assert.match(sent[0].message.content, /Goal: X\. Done: A\. Left: B\./);
+    assert.match(sent[0].message.content, /Start a new subagent with this handoff in its task\. Do not resume this session\./);
+    assert.match(sent[0].message.content, /Session: \/tmp\/child\.jsonl/);
+    // No `Resume:` line — a handoff tells the parent to start a NEW subagent.
+    assert.doesNotMatch(sent[0].message.content, /Resume:/);
   });
 
   it("watchSubagent keeps the sentinel summary when the pane is already gone (claude)", async () => {
