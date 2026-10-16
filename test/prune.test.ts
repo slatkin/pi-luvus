@@ -6,7 +6,15 @@ import assert from "node:assert/strict";
 for (const key of Object.keys(process.env)) {
   if (key.startsWith("LUVUS_")) delete process.env[key];
 }
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { main } from "../pi-extension/luvus/cli.ts";
@@ -132,14 +140,20 @@ describe("cli.ts prune", () => {
   it("start removes old scratch files in the same directory", async () => {
     __setLuvusExecForTests__((args) => {
       if (args[0] === "pane" && args[1] === "split") {
-        return JSON.stringify({ id: "1", result: { pane: "24", revision: 1, type: "pane", tab: "1", workspace: "2" } });
+        return JSON.stringify({
+          id: "1",
+          result: { pane: "24", revision: 1, type: "pane", tab: "1", workspace: "2" },
+        });
       }
       return JSON.stringify({ id: "1", result: { revision: 1, type: "ok" } });
     });
     const dir = mkdtempSync(join(workdir, "autoprune-"));
     const cwd = mkdtempSync(join(dir, "cwd-"));
     mkdirSync(join(cwd, ".pi", "agents"), { recursive: true });
-    writeFileSync(join(cwd, ".pi", "agents", "worker.md"), "---\nmodel: test-model\n---\n\nBody.\n");
+    writeFileSync(
+      join(cwd, ".pi", "agents", "worker.md"),
+      "---\nmodel: test-model\n---\n\nBody.\n",
+    );
     const brief = join(dir, "brief.md");
     writeFileSync(brief, "# Task\n\nDo the thing.\n");
     const scratch = join(dir, "scratch");
@@ -149,9 +163,28 @@ describe("cli.ts prune", () => {
     writeFileSync(configPath, JSON.stringify({ surface: "right" }));
     const stdout: string[] = [];
     const code = await main(
-      ["start", "--name", "scout-1", "--role", "worker", "--cwd", cwd, "--brief", brief, "--parent", "orch", "--scratch", scratch],
+      [
+        "start",
+        "--name",
+        "scout-1",
+        "--role",
+        "worker",
+        "--cwd",
+        cwd,
+        "--brief",
+        brief,
+        "--parent",
+        "orch",
+        "--scratch",
+        scratch,
+      ],
       {
-        env: { PATH: process.env.PATH, LUVUS_ENV: "1", LUVUS_BIN_PATH: "in-process", LUVUS_PANE_ID: "21" },
+        env: {
+          PATH: process.env.PATH,
+          LUVUS_ENV: "1",
+          LUVUS_BIN_PATH: "in-process",
+          LUVUS_PANE_ID: "21",
+        },
         stdout: (text) => stdout.push(text),
         stderr: () => {},
         sleep: async () => {},

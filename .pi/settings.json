@@ -1,5 +1,3 @@
 {
-  "skills": [
-    "./skills/run-integration-tests/SKILL.md"
-  ]
+  "skills": ["./skills/run-integration-tests/SKILL.md"]
 }

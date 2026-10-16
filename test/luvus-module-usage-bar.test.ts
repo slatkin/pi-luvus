@@ -9,7 +9,15 @@
  */
 import { after, describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -42,7 +50,10 @@ function makeRoot(): string {
 }
 
 function assistantMessage(cost: number, totalTokens: number): unknown {
-  return { type: "message", message: { role: "assistant", usage: { cost: { total: cost }, totalTokens } } };
+  return {
+    type: "message",
+    message: { role: "assistant", usage: { cost: { total: cost }, totalTokens } },
+  };
 }
 
 /** One JSONL session file's text from raw entries. */
@@ -99,7 +110,10 @@ describe("parseSessionUsage", () => {
   it("ignores a usage block with missing or non-numeric fields", () => {
     const text = [
       JSON.stringify({ type: "message", message: { role: "assistant", usage: {} } }),
-      JSON.stringify({ type: "message", message: { role: "assistant", usage: { cost: { total: "1" } } } }),
+      JSON.stringify({
+        type: "message",
+        message: { role: "assistant", usage: { cost: { total: "1" } } },
+      }),
       JSON.stringify(assistantMessage(0.5, 10)),
     ].join("\n");
     assert.deepEqual(parseSessionUsage(text), { cost: 0.5, contextTokens: 10 });
@@ -134,7 +148,9 @@ describe("buildBarArgs and buildBarRemoveArgs", () => {
   });
 
   it("uses a separator segment between the values", () => {
-    const content = JSON.parse(buildBarArgs({ panes: 2, cost: 1.25, contextTokens: 142000 })[5] as string);
+    const content = JSON.parse(
+      buildBarArgs({ panes: 2, cost: 1.25, contextTokens: 142000 })[5] as string,
+    );
     assert.deepEqual(content, [
       { type: "text", text: "π 2" },
       { type: "separator" },
@@ -279,11 +295,7 @@ describe("main", () => {
       "utf8",
     );
     const log = join(work, "log.jsonl");
-    const bin = writeStub(
-      work,
-      [pane("a"), pane("b"), { agent: "claude", session: "c" }],
-      log,
-    );
+    const bin = writeStub(work, [pane("a"), pane("b"), { agent: "claude", session: "c" }], log);
 
     const code = main({
       LUVUS_BIN_PATH: bin,
@@ -327,7 +339,10 @@ describe("main", () => {
 });
 
 describe("module manifest", () => {
-  const manifest = readFileSync(new URL("../luvus-module/luvus-module.toml", import.meta.url), "utf8");
+  const manifest = readFileSync(
+    new URL("../luvus-module/luvus-module.toml", import.meta.url),
+    "utf8",
+  );
 
   it("keeps the module id and declares one pi-usage bar", () => {
     assert.match(manifest, /^id = "pi-luvus\.pane-titles"$/m);

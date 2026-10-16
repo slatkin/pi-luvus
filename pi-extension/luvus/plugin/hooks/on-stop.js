@@ -104,7 +104,8 @@ function handle(input) {
   // Exactly one real human message means the child ran autonomously — signal
   // completion with the last assistant message as the result.
   if (countUserMessages(transcriptPath) === 1) {
-    const last = typeof input.last_assistant_message === "string" ? input.last_assistant_message : "";
+    const last =
+      typeof input.last_assistant_message === "string" ? input.last_assistant_message : "";
     writeText(sentinel, `${last}\n`);
   }
 }

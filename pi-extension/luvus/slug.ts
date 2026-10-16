@@ -45,7 +45,10 @@ export function slugifyName(name: string, options: SlugifyOptions = {}): string 
   } = options;
 
   const source = lowercase ? name.toLowerCase() : name;
-  let slug = source.replace(droppedPattern(hyphenate, lowercase, keepUnderscore), hyphenate ? "-" : "");
+  let slug = source.replace(
+    droppedPattern(hyphenate, lowercase, keepUnderscore),
+    hyphenate ? "-" : "",
+  );
   if (!hyphenate) slug = slug.replace(/\s+/g, "-");
   if (collapse) slug = slug.replace(/-+/g, "-");
   slug = slug.replace(/^-+/, "").replace(/-+$/, "");

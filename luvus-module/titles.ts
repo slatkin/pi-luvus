@@ -119,7 +119,10 @@ export function parseAgentSessions(raw: string): AgentSession[] {
 }
 
 /** The `pi` sessions, newest first, capped at `limit`. */
-export function piSessions(sessions: readonly AgentSession[], limit = MAX_SESSIONS): AgentSession[] {
+export function piSessions(
+  sessions: readonly AgentSession[],
+  limit = MAX_SESSIONS,
+): AgentSession[] {
   return sessions.filter((session) => session.agent === "pi").slice(0, limit);
 }
 

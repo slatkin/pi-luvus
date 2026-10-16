@@ -67,7 +67,10 @@ function parseSessionMode(value: string | undefined): SubagentSessionMode | unde
   return undefined;
 }
 
-export function parseAgentDefinition(content: string, fallbackName: string): AgentDefinition | null {
+export function parseAgentDefinition(
+  content: string,
+  fallbackName: string,
+): AgentDefinition | null {
   // Role files may use CRLF line endings; normalize so both parse identically.
   const text = content.replace(/\r\n/g, "\n");
   const match = text.match(/^---\n([\s\S]*?)\n---/);

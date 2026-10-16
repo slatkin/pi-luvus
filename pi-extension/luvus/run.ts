@@ -56,14 +56,20 @@ function countReports(sessionFile: string | undefined, parent: string): number {
     // Single, double (JSON-escaped), or unquoted `$(...)` message; a `<`
     // after the quote marks a placeholder.
     const name = parent.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return text.match(new RegExp(`agent send ${name} (?:'(?!<)|\\\\?"(?!<)|\\$)`, "g"))?.length ?? 0;
+    return (
+      text.match(new RegExp(`agent send ${name} (?:'(?!<)|\\\\?"(?!<)|\\$)`, "g"))?.length ?? 0
+    );
   } catch {
     return 0;
   }
 }
 
 /** Map a finished child to its report code, printing why it could not start. */
-function reportExit(outcome: ChildOutcome, command: string, writeErr: (text: string) => void): number {
+function reportExit(
+  outcome: ChildOutcome,
+  command: string,
+  writeErr: (text: string) => void,
+): number {
   if (outcome.error !== undefined) {
     writeErr(`Failed to start ${command}: ${outcome.error.message}\n`);
     return SPAWN_FAILED_CODE;
@@ -84,7 +90,11 @@ function reportExit(outcome: ChildOutcome, command: string, writeErr: (text: str
  * is given), inherit the pane's stdio, print the sentinel, and return the
  * code the CLI must exit with.
  */
-export async function runSpec(spec: LaunchSpec, prompt?: string, deps: RunSpecDeps = {}): Promise<number> {
+export async function runSpec(
+  spec: LaunchSpec,
+  prompt?: string,
+  deps: RunSpecDeps = {},
+): Promise<number> {
   const base = deps.env ?? process.env;
   const write = deps.stdout ?? ((text: string) => process.stdout.write(text));
   const writeErr = deps.stderr ?? ((text: string) => process.stderr.write(text));
@@ -129,7 +139,9 @@ export async function runSpec(spec: LaunchSpec, prompt?: string, deps: RunSpecDe
     });
     outcome = await new Promise<ChildOutcome>((resolve) => {
       child.once("error", (error: Error) => resolve({ code: null, signal: null, error }));
-      child.once("close", (code: number | null, signal: NodeJS.Signals | null) => resolve({ code, signal }));
+      child.once("close", (code: number | null, signal: NodeJS.Signals | null) =>
+        resolve({ code, signal }),
+      );
     });
   } finally {
     process.removeListener("SIGINT", ignoreSigint);
@@ -150,7 +162,9 @@ export async function runSpec(spec: LaunchSpec, prompt?: string, deps: RunSpecDe
         `${spec.name} ${state} without sending a report. Read its last message: node <skill-dir>/launch.ts last-message --session ${spec.sessionFile ?? "<session>"}`,
       );
     } catch (error) {
-      writeErr(`Failed to wake parent ${spec.parent}: ${error instanceof Error ? error.message : String(error)}\n`);
+      writeErr(
+        `Failed to wake parent ${spec.parent}: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
     }
   }
 

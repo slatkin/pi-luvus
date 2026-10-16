@@ -45,7 +45,11 @@ export function execLuvusCli(bin: string, args: string[]): void {
     if (output instanceof Promise) void output.catch(() => {});
     return;
   }
-  execFileSync(bin, args, { encoding: "utf8", timeout: LUVUS_CALL_TIMEOUT_MS, stdio: ["ignore", "ignore", "ignore"] });
+  execFileSync(bin, args, {
+    encoding: "utf8",
+    timeout: LUVUS_CALL_TIMEOUT_MS,
+    stdio: ["ignore", "ignore", "ignore"],
+  });
 }
 
 /**
@@ -81,7 +85,9 @@ function isLuvusTimeout(error: unknown): boolean {
 }
 
 function luvusTimeoutError(args: string[]): Error {
-  return new Error(`Luvus command timed out after ${LUVUS_CALL_TIMEOUT_MS}ms: luvus ${args.join(" ")}`);
+  return new Error(
+    `Luvus command timed out after ${LUVUS_CALL_TIMEOUT_MS}ms: luvus ${args.join(" ")}`,
+  );
 }
 
 function luvusBinPath(): string {
@@ -110,7 +116,9 @@ function parseEnvelope(stdout: string): LuvusResult {
   }
   if (parsed && typeof parsed === "object" && "error" in parsed && parsed.error) {
     const message = parsed.error.message;
-    throw new Error(typeof message === "string" && message ? message : JSON.stringify(parsed.error));
+    throw new Error(
+      typeof message === "string" && message ? message : JSON.stringify(parsed.error),
+    );
   }
   return parsed?.result && typeof parsed.result === "object" ? (parsed.result as LuvusResult) : {};
 }
@@ -125,7 +133,9 @@ function luvus(args: string[]): LuvusResult {
     return parseEnvelope(output);
   }
   try {
-    return parseEnvelope(execFileSync(luvusBinPath(), args, { encoding: "utf8", timeout: LUVUS_CALL_TIMEOUT_MS }));
+    return parseEnvelope(
+      execFileSync(luvusBinPath(), args, { encoding: "utf8", timeout: LUVUS_CALL_TIMEOUT_MS }),
+    );
   } catch (error) {
     if (isLuvusTimeout(error)) throw luvusTimeoutError(args);
     // Non-zero exit: the envelope (with `.error`) is on stdout, but
@@ -142,7 +152,10 @@ function luvus(args: string[]): LuvusResult {
 async function luvusAsync(args: string[]): Promise<LuvusResult> {
   if (execOverride) return parseEnvelope(await execOverride(args));
   try {
-    const { stdout } = await execFileAsync(luvusBinPath(), args, { encoding: "utf8", timeout: LUVUS_CALL_TIMEOUT_MS });
+    const { stdout } = await execFileAsync(luvusBinPath(), args, {
+      encoding: "utf8",
+      timeout: LUVUS_CALL_TIMEOUT_MS,
+    });
     return parseEnvelope(stdout);
   } catch (error) {
     if (isLuvusTimeout(error)) throw luvusTimeoutError(args);
@@ -243,7 +256,13 @@ export function createSurface(
   // tab. An unknown caller tab downgrades the spawn to pane placement.
   const callerTab = placement === "tab" ? findCallerTab(caller) : null;
 
-  const result = luvus(["pane", "split", caller, placement === "down" ? "--down" : "--right", "--no-focus"]);
+  const result = luvus([
+    "pane",
+    "split",
+    caller,
+    placement === "down" ? "--down" : "--right",
+    "--no-focus",
+  ]);
   // Verified live (fixture in test/test.ts): the new pane id is `result.pane`.
   const { pane } = result;
   if (pane === undefined || pane === null || pane === "") {
@@ -459,11 +478,10 @@ export function readExitSidecar(sessionFile: string): any {
  * A pane with no entry, or one holding only a terminal `done` / `blocked`
  * lease that survives the exited process, accepts the match.
  */
-export function sentinelLooksLive(
-  agentList: unknown,
-  pane: string,
-): boolean {
-  const list = agentList as { agents?: Array<{ pane?: unknown; status?: unknown; authority?: unknown }> } | null;
+export function sentinelLooksLive(agentList: unknown, pane: string): boolean {
+  const list = agentList as {
+    agents?: Array<{ pane?: unknown; status?: unknown; authority?: unknown }>;
+  } | null;
   const mine = list?.agents?.find(
     (agent) => agent != null && String((agent as { pane?: unknown }).pane) === pane,
   );

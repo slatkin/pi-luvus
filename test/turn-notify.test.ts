@@ -173,11 +173,9 @@ describe("createTurnNotifier", () => {
   it("makes no call outside Luvus", async () => {
     const { deps, pushed, focusChecks } = makeDeps();
     const { pi, fire } = makePi();
-    createTurnNotifier(
-      { LUVUS_ENV: "1", LUVUS_BIN_PATH: "/bin/luvus" },
-      true,
-      deps,
-    ).register(pi as never);
+    createTurnNotifier({ LUVUS_ENV: "1", LUVUS_BIN_PATH: "/bin/luvus" }, true, deps).register(
+      pi as never,
+    );
 
     fire("agent_end", ending("stop"));
     await flush();

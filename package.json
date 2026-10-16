@@ -25,7 +25,9 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "test": "node --test test/test.ts test/cli.test.ts test/prune.test.ts test/report-cap.test.ts test/luvus-status.test.ts test/live-title.test.ts test/luvus-module-titles.test.ts test/luvus-module-usage-bar.test.ts test/uhp-events.test.ts test/turn-notify.test.ts test/context-alert.test.ts"
+    "test": "node --test test/test.ts test/cli.test.ts test/prune.test.ts test/report-cap.test.ts test/luvus-status.test.ts test/live-title.test.ts test/luvus-module-titles.test.ts test/luvus-module-usage-bar.test.ts test/uhp-events.test.ts test/turn-notify.test.ts test/context-alert.test.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
@@ -41,6 +43,7 @@
     "@earendil-works/pi-coding-agent": "^0.87.1",
     "@earendil-works/pi-tui": "^0.87.1",
     "@sinclair/typebox": "^0.34.49",
+    "prettier": "^3.9.10",
     "typescript": "^5.9.3"
   }
 }

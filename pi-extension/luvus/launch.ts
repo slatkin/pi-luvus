@@ -68,7 +68,8 @@ export function validateLaunchSpec(data: unknown): LaunchSpec {
   if (typeof spec.command !== "string" || spec.command.length === 0) invalid("missing command");
 
   const env = spec.env === undefined ? {} : spec.env;
-  if (env === null || typeof env !== "object" || Array.isArray(env)) invalid("env must be an object");
+  if (env === null || typeof env !== "object" || Array.isArray(env))
+    invalid("env must be an object");
   for (const [key, value] of Object.entries(env as Record<string, unknown>)) {
     if (typeof value !== "string") invalid(`env.${key} must be a string`);
   }
@@ -201,7 +202,9 @@ export function resolvePiCommand(deps: ResolvePiDeps = {}): string[] {
       if (!fileExists(join(dir, "pi.cmd"))) continue;
       const packageDir = join(dir, "node_modules", "@earendil-works", "pi-coding-agent");
       try {
-        const pkg = JSON.parse(readText(join(packageDir, "package.json"))) as { bin?: { pi?: unknown } };
+        const pkg = JSON.parse(readText(join(packageDir, "package.json"))) as {
+          bin?: { pi?: unknown };
+        };
         const binPi = pkg?.bin?.pi;
         if (typeof binPi === "string" && binPi.length > 0) {
           return [execPath, join(packageDir, binPi)];

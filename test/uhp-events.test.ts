@@ -114,13 +114,19 @@ afterEach(() => {
 
 describe("UHP event frames", () => {
   it("parses event frames and ignores malformed or non-frame lines", () => {
-    assert.deepEqual(parseUhpEventLine('{"event":"pane.closed","sequence":4,"data":{"pane":"7"}}'), {
-      event: "pane.closed",
-      sequence: 4,
-      data: { pane: "7" },
-    });
+    assert.deepEqual(
+      parseUhpEventLine('{"event":"pane.closed","sequence":4,"data":{"pane":"7"}}'),
+      {
+        event: "pane.closed",
+        sequence: 4,
+        data: { pane: "7" },
+      },
+    );
     // The subscription envelope is valid JSON but not an event frame.
-    assert.equal(parseUhpEventLine('{"id":"1","result":{"type":"subscription_started","sequence":9}}'), null);
+    assert.equal(
+      parseUhpEventLine('{"id":"1","result":{"type":"subscription_started","sequence":9}}'),
+      null,
+    );
     assert.equal(parseUhpEventLine("not json"), null);
     assert.equal(parseUhpEventLine(""), null);
     assert.equal(parseUhpEventLine('{"event":"pane.closed"}'), null);
@@ -128,7 +134,8 @@ describe("UHP event frames", () => {
   });
 
   it("classifies only status and lifecycle events as triggers", () => {
-    const frame = (event: string) => parseUhpEventLine(JSON.stringify({ event, sequence: 1, data: {} }));
+    const frame = (event: string) =>
+      parseUhpEventLine(JSON.stringify({ event, sequence: 1, data: {} }));
     assert.equal(classifyUhpFrame(frame("pane.agent_status_changed")!), "trigger");
     assert.equal(classifyUhpFrame(frame("terminal.exited")!), "trigger");
     assert.equal(classifyUhpFrame(frame("terminal.closed")!), "trigger");
@@ -140,8 +147,14 @@ describe("UHP event frames", () => {
 
   it("matches a frame to a pane through pane or pane_id", () => {
     assert.equal(framePane({ event: "pane.closed", sequence: 1, data: { pane: "7" } }), "7");
-    assert.equal(framePane({ event: "terminal.exited", sequence: 1, data: { pane_id: "12" } }), "12");
-    assert.equal(framePane({ event: "terminal.closed", sequence: 1, data: { detail: {} } }), undefined);
+    assert.equal(
+      framePane({ event: "terminal.exited", sequence: 1, data: { pane_id: "12" } }),
+      "12",
+    );
+    assert.equal(
+      framePane({ event: "terminal.closed", sequence: 1, data: { detail: {} } }),
+      undefined,
+    );
   });
 
   it("bounds the restart delay and repeats the last value", () => {
@@ -210,7 +223,9 @@ describe("UHP event stream lifecycle", () => {
     await flush();
     assert.equal(log.agentLists.length, 1);
 
-    log.streamChildren[0].push(`${JSON.stringify({ event: "events.resync_required", sequence: 2, data: { reason: "subscriber_overflow" } })}\n`);
+    log.streamChildren[0].push(
+      `${JSON.stringify({ event: "events.resync_required", sequence: 2, data: { reason: "subscriber_overflow" } })}\n`,
+    );
     await flush();
 
     assert.equal(log.agentLists.length, 2);
@@ -232,8 +247,14 @@ describe("UHP event stream lifecycle", () => {
 
     await sleep(25);
 
-    assert.ok(log.streams.length >= 2, `expected a restart, saw ${log.streams.length} stream start(s)`);
-    assert.ok(log.agentLists.length >= 2, `expected a snapshot per start, saw ${log.agentLists.length}`);
+    assert.ok(
+      log.streams.length >= 2,
+      `expected a restart, saw ${log.streams.length} stream start(s)`,
+    );
+    assert.ok(
+      log.agentLists.length >= 2,
+      `expected a snapshot per start, saw ${log.agentLists.length}`,
+    );
     release();
   });
 
@@ -259,13 +280,17 @@ describe("UHP event stream lifecycle", () => {
     assert.equal(listCalls, 1);
     assert.equal(stream.agentListSnapshot(), null);
 
-    streamChild.push(`${JSON.stringify({ event: "pane.closed", sequence: 1, data: { pane: "7" } })}\n`);
+    streamChild.push(
+      `${JSON.stringify({ event: "pane.closed", sequence: 1, data: { pane: "7" } })}\n`,
+    );
     await flush();
     assert.deepEqual(triggers, [], "events before a successful snapshot must not trigger");
 
     await sleep(80);
     assert.ok(listCalls >= 2, `expected a snapshot retry, saw ${listCalls}`);
-    streamChild.push(`${JSON.stringify({ event: "pane.closed", sequence: 2, data: { pane: "7" } })}\n`);
+    streamChild.push(
+      `${JSON.stringify({ event: "pane.closed", sequence: 2, data: { pane: "7" } })}\n`,
+    );
     await flush();
     assert.deepEqual(triggers, ["7"]);
     release();
@@ -322,9 +347,15 @@ describe("UHP event stream triggers", () => {
     await flush();
 
     const child = log.streamChildren[0];
-    child.push(`${JSON.stringify({ event: "terminal.frame", sequence: 1, data: { pane_id: "7" } })}\n`);
-    child.push(`${JSON.stringify({ event: "pane.agent_status_changed", sequence: 2, data: { pane: "9" } })}\n`);
-    child.push(`${JSON.stringify({ event: "pane.agent_status_changed", sequence: 3, data: { pane: "7" } })}\n`);
+    child.push(
+      `${JSON.stringify({ event: "terminal.frame", sequence: 1, data: { pane_id: "7" } })}\n`,
+    );
+    child.push(
+      `${JSON.stringify({ event: "pane.agent_status_changed", sequence: 2, data: { pane: "9" } })}\n`,
+    );
+    child.push(
+      `${JSON.stringify({ event: "pane.agent_status_changed", sequence: 3, data: { pane: "7" } })}\n`,
+    );
     await flush();
 
     assert.deepEqual(triggers, ["7"]);
@@ -344,7 +375,7 @@ describe("UHP event stream triggers", () => {
     child.push('{"event":"pane.closed","sequence":5,"data":{"pane":"7"');
     await flush();
     assert.deepEqual(triggers, []);
-    child.push('}}\n');
+    child.push("}}\n");
     await flush();
 
     assert.deepEqual(triggers, ["7"]);
@@ -353,7 +384,11 @@ describe("UHP event stream triggers", () => {
 });
 
 /** A stand-in for `UhpEventStream` that tests drive directly. */
-function fakeEventStream(snapshot: AgentListSnapshot | null = { agents: [{ pane: "24", status: "done", authority: "integration_report" }] }) {
+function fakeEventStream(
+  snapshot: AgentListSnapshot | null = {
+    agents: [{ pane: "24", status: "done", authority: "integration_report" }],
+  },
+) {
   const listeners = new Map<string, Set<(pane: string) => void>>();
   return {
     running: true,
@@ -390,18 +425,28 @@ describe("pollForExit with an event stream", () => {
     const stream = fakeEventStream();
     const controller = new AbortController();
     let settled = false;
-    const poll = pollForExit("24", controller.signal, { interval: 5000, eventStream: stream }).then((r) => {
-      settled = true;
-      return r;
-    });
+    const poll = pollForExit("24", controller.signal, { interval: 5000, eventStream: stream }).then(
+      (r) => {
+        settled = true;
+        return r;
+      },
+    );
 
     await flush();
-    assert.equal(calls.filter((call) => call[0] === "pane").length, 0, "no interval screen read while the stream runs");
+    assert.equal(
+      calls.filter((call) => call[0] === "pane").length,
+      0,
+      "no interval screen read while the stream runs",
+    );
 
     // An event with no sidecar and no sentinel keeps the wait open.
     stream.fire("24");
     await flush();
-    assert.equal(calls.filter((call) => call[0] === "pane").length, 1, "one immediate screen check for the trigger");
+    assert.equal(
+      calls.filter((call) => call[0] === "pane").length,
+      1,
+      "one immediate screen check for the trigger",
+    );
     assert.equal(settled, false);
 
     // A later event with the sentinel on screen ends the wait with the result.
@@ -410,6 +455,10 @@ describe("pollForExit with an event stream", () => {
     const result = await poll;
 
     assert.deepEqual(result, { reason: "sentinel", exitCode: 4 });
-    assert.equal(calls.filter((call) => call[0] === "agent").length, 0, "the stream snapshot replaces the agent list call");
+    assert.equal(
+      calls.filter((call) => call[0] === "agent").length,
+      0,
+      "the stream snapshot replaces the agent list call",
+    );
   });
 });

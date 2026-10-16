@@ -51,7 +51,11 @@ export function isSentinelFile(name: string): boolean {
   return /^pi-claude-.*-done(\.transcript)?$/.test(name);
 }
 
-function pruneDir(dir: string, matches: (name: string) => boolean, options: PruneOptions): PruneResult {
+function pruneDir(
+  dir: string,
+  matches: (name: string) => boolean,
+  options: PruneOptions,
+): PruneResult {
   const result: PruneResult = { scanned: 0, deleted: [], deletedBytes: 0 };
   const now = options.now ?? Date.now();
   let names: string[];

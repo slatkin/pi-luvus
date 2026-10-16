@@ -11,7 +11,9 @@ import {
 
 const T0 = 1_000_000;
 
-function decide(overrides: Partial<Parameters<typeof decideIdleAction>[0]> & { state?: IdleWatchState }) {
+function decide(
+  overrides: Partial<Parameters<typeof decideIdleAction>[0]> & { state?: IdleWatchState },
+) {
   return decideIdleAction({
     interactive: false,
     phase: "waiting",
@@ -25,51 +27,174 @@ function decide(overrides: Partial<Parameters<typeof decideIdleAction>[0]> & { s
 describe("idle-watchdog decideGoneAction", () => {
   it("declares a non-interactive child gone once its snapshot ages past the threshold", () => {
     const state: IdleWatchState = { nudges: 0 };
-    assert.equal(decideGoneAction({ interactive: false, readOk: true, activity: { updatedAt: T0 }, now: T0 + IDLE_GONE_MS - 1, state }), "none");
-    assert.equal(decideGoneAction({ interactive: false, readOk: true, activity: { updatedAt: T0 }, now: T0 + IDLE_GONE_MS, state }), "gone");
+    assert.equal(
+      decideGoneAction({
+        interactive: false,
+        readOk: true,
+        activity: { updatedAt: T0 },
+        now: T0 + IDLE_GONE_MS - 1,
+        state,
+      }),
+      "none",
+    );
+    assert.equal(
+      decideGoneAction({
+        interactive: false,
+        readOk: true,
+        activity: { updatedAt: T0 },
+        now: T0 + IDLE_GONE_MS,
+        state,
+      }),
+      "gone",
+    );
     // Latched: no repeated decision once made.
-    assert.equal(decideGoneAction({ interactive: false, readOk: true, activity: { updatedAt: T0 }, now: T0 + IDLE_GONE_MS + 1, state }), "none");
+    assert.equal(
+      decideGoneAction({
+        interactive: false,
+        readOk: true,
+        activity: { updatedAt: T0 },
+        now: T0 + IDLE_GONE_MS + 1,
+        state,
+      }),
+      "none",
+    );
   });
 
   it("resets when fresh snapshots return", () => {
     const state: IdleWatchState = { nudges: 0, gone: true };
-    assert.equal(decideGoneAction({ interactive: false, readOk: true, activity: { updatedAt: T0 }, now: T0, state }), "none");
+    assert.equal(
+      decideGoneAction({
+        interactive: false,
+        readOk: true,
+        activity: { updatedAt: T0 },
+        now: T0,
+        state,
+      }),
+      "none",
+    );
     assert.equal(state.gone, false);
     assert.equal(state.failedReadSince, undefined);
   });
 
   it("ages failing reads the same way, from the read failure", () => {
     const state: IdleWatchState = { nudges: 0 };
-    assert.equal(decideGoneAction({ interactive: false, readOk: false, activity: { updatedAt: T0 }, now: T0 + IDLE_GONE_MS - 1, state }), "none");
-    assert.equal(decideGoneAction({ interactive: false, readOk: false, activity: { updatedAt: T0 }, now: T0 + IDLE_GONE_MS, state }), "gone");
+    assert.equal(
+      decideGoneAction({
+        interactive: false,
+        readOk: false,
+        activity: { updatedAt: T0 },
+        now: T0 + IDLE_GONE_MS - 1,
+        state,
+      }),
+      "none",
+    );
+    assert.equal(
+      decideGoneAction({
+        interactive: false,
+        readOk: false,
+        activity: { updatedAt: T0 },
+        now: T0 + IDLE_GONE_MS,
+        state,
+      }),
+      "gone",
+    );
     assert.equal(state.failedReadSince, T0 + IDLE_GONE_MS - 1);
   });
 
   it("waits a full IDLE_GONE_MS of failed reads before declaring a never-reporting child gone", () => {
     const state: IdleWatchState = { nudges: 0 };
     // The first failed read with no snapshot yet must not be immediate death.
-    assert.equal(decideGoneAction({ interactive: false, readOk: false, activity: undefined, now: T0, state }), "none");
+    assert.equal(
+      decideGoneAction({ interactive: false, readOk: false, activity: undefined, now: T0, state }),
+      "none",
+    );
     assert.equal(state.failedReadSince, T0);
     // Still short of the threshold.
-    assert.equal(decideGoneAction({ interactive: false, readOk: false, activity: undefined, now: T0 + IDLE_GONE_MS - 1, state }), "none");
+    assert.equal(
+      decideGoneAction({
+        interactive: false,
+        readOk: false,
+        activity: undefined,
+        now: T0 + IDLE_GONE_MS - 1,
+        state,
+      }),
+      "none",
+    );
     // Continuous silence past the threshold.
-    assert.equal(decideGoneAction({ interactive: false, readOk: false, activity: undefined, now: T0 + IDLE_GONE_MS, state }), "gone");
+    assert.equal(
+      decideGoneAction({
+        interactive: false,
+        readOk: false,
+        activity: undefined,
+        now: T0 + IDLE_GONE_MS,
+        state,
+      }),
+      "gone",
+    );
   });
 
   it("a good read resets the missing-snapshot silence", () => {
     const state: IdleWatchState = { nudges: 0 };
-    assert.equal(decideGoneAction({ interactive: false, readOk: false, activity: undefined, now: T0, state }), "none");
-    assert.equal(decideGoneAction({ interactive: false, readOk: true, activity: { updatedAt: T0 + 1_000 }, now: T0 + 1_000, state }), "none");
+    assert.equal(
+      decideGoneAction({ interactive: false, readOk: false, activity: undefined, now: T0, state }),
+      "none",
+    );
+    assert.equal(
+      decideGoneAction({
+        interactive: false,
+        readOk: true,
+        activity: { updatedAt: T0 + 1_000 },
+        now: T0 + 1_000,
+        state,
+      }),
+      "none",
+    );
     assert.equal(state.failedReadSince, undefined);
     // The next failure restarts the clock; it is not aged from the first read.
-    assert.equal(decideGoneAction({ interactive: false, readOk: false, activity: undefined, now: T0 + 1_000, state }), "none");
-    assert.equal(decideGoneAction({ interactive: false, readOk: false, activity: undefined, now: T0 + 1_000 + IDLE_GONE_MS - 1, state }), "none");
-    assert.equal(decideGoneAction({ interactive: false, readOk: false, activity: undefined, now: T0 + 1_000 + IDLE_GONE_MS, state }), "gone");
+    assert.equal(
+      decideGoneAction({
+        interactive: false,
+        readOk: false,
+        activity: undefined,
+        now: T0 + 1_000,
+        state,
+      }),
+      "none",
+    );
+    assert.equal(
+      decideGoneAction({
+        interactive: false,
+        readOk: false,
+        activity: undefined,
+        now: T0 + 1_000 + IDLE_GONE_MS - 1,
+        state,
+      }),
+      "none",
+    );
+    assert.equal(
+      decideGoneAction({
+        interactive: false,
+        readOk: false,
+        activity: undefined,
+        now: T0 + 1_000 + IDLE_GONE_MS,
+        state,
+      }),
+      "gone",
+    );
   });
 
   it("never declares an interactive child gone", () => {
     const state: IdleWatchState = { nudges: 0 };
-    assert.equal(decideGoneAction({ interactive: true, readOk: false, activity: { updatedAt: T0 - IDLE_GONE_MS * 9 }, now: T0 + IDLE_GONE_MS * 9, state }), "none");
+    assert.equal(
+      decideGoneAction({
+        interactive: true,
+        readOk: false,
+        activity: { updatedAt: T0 - IDLE_GONE_MS * 9 },
+        now: T0 + IDLE_GONE_MS * 9,
+        state,
+      }),
+      "none",
+    );
     assert.equal(state.gone, undefined);
   });
 });
@@ -98,7 +223,11 @@ describe("idle-watchdog decideIdleAction", () => {
 
   it("finishes once the reminders are used up and the child is still waiting", () => {
     // The reminders belong to the current stretch (the child never restarted).
-    const state: IdleWatchState = { nudges: IDLE_MAX_NUDGES, lastNudgeAt: T0 + IDLE_STEP_MS, stretchSince: T0 };
+    const state: IdleWatchState = {
+      nudges: IDLE_MAX_NUDGES,
+      lastNudgeAt: T0 + IDLE_STEP_MS,
+      stretchSince: T0,
+    };
     assert.equal(decide({ now: T0 + 2 * IDLE_STEP_MS - 1, state }), "none");
     assert.equal(decide({ now: T0 + 2 * IDLE_STEP_MS, state }), "finish");
   });
@@ -108,8 +237,14 @@ describe("idle-watchdog decideIdleAction", () => {
     // The new stretch resets the budget, so the next action is a reminder, not a finish.
     const restartedAt = T0 + IDLE_STEP_MS + 5_000;
     const state: IdleWatchState = { nudges: IDLE_MAX_NUDGES, lastNudgeAt: T0 + IDLE_STEP_MS };
-    assert.equal(decide({ waitingSince: restartedAt, now: restartedAt + IDLE_STEP_MS - 1, state }), "none");
-    assert.equal(decide({ waitingSince: restartedAt, now: restartedAt + IDLE_STEP_MS, state }), "nudge");
+    assert.equal(
+      decide({ waitingSince: restartedAt, now: restartedAt + IDLE_STEP_MS - 1, state }),
+      "none",
+    );
+    assert.equal(
+      decide({ waitingSince: restartedAt, now: restartedAt + IDLE_STEP_MS, state }),
+      "nudge",
+    );
     // The budget restarted with the stretch; the caller increments the counter.
     assert.deepEqual(state, { nudges: 0, lastNudgeAt: undefined, stretchSince: restartedAt });
   });

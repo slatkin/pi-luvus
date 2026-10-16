@@ -21,12 +21,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import {
-  indexSessionFiles,
-  runLuvus,
-  sessionsRoot,
-  type SessionFileInfo,
-} from "./titles.ts";
+import { indexSessionFiles, runLuvus, sessionsRoot, type SessionFileInfo } from "./titles.ts";
 
 /** The declared Bar widget id, from `luvus-module.toml`. */
 export const BAR_ID = "pi-usage";
@@ -247,7 +242,11 @@ export function collectUsage(
     cost += usage.cost;
     if (usage.contextTokens > contextTokens) contextTokens = usage.contextTokens;
   }
-  return { totals: { panes: panesCount, cost, contextTokens }, cache: { version: 1, files }, reads };
+  return {
+    totals: { panes: panesCount, cost, contextTokens },
+    cache: { version: 1, files },
+    reads,
+  };
 }
 
 function readCacheFile(path: string): UsageCache {
@@ -296,9 +295,7 @@ export function main(env: NodeJS.ProcessEnv = process.env): number {
   );
   if (cachePath) writeCacheFile(cachePath, next);
   const result =
-    totals.panes === 0
-      ? runLuvus(bin, buildBarRemoveArgs())
-      : runLuvus(bin, buildBarArgs(totals));
+    totals.panes === 0 ? runLuvus(bin, buildBarRemoveArgs()) : runLuvus(bin, buildBarArgs(totals));
   if (!result.ok) {
     console.error(`pi usage bar: luvus bar call failed: ${result.stderr.trim()}`);
     return 1;

@@ -2,7 +2,11 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentConfigDir } from "./agent-defs.ts";
-import { DEFAULT_SURFACE_PLACEMENT, parseSurfacePlacement, type SurfacePlacement } from "./luvus.ts";
+import {
+  DEFAULT_SURFACE_PLACEMENT,
+  parseSurfacePlacement,
+  type SurfacePlacement,
+} from "./luvus.ts";
 import { parseContextAlertConfig, type ContextAlertConfig } from "./context-alert.ts";
 
 export const SNAPSHOT_STALLED_AFTER_MS = 60_000;
@@ -128,7 +132,10 @@ function rejectUnsupportedKeys(
 ): void {
   const unsupportedKeys = Object.keys(value).filter((key) => !allowedKeys.includes(key));
   if (unsupportedKeys.length > 0) {
-    invalidStatusConfig(source, `${fieldName} has unsupported key(s): ${unsupportedKeys.join(", ")}`);
+    invalidStatusConfig(
+      source,
+      `${fieldName} has unsupported key(s): ${unsupportedKeys.join(", ")}`,
+    );
   }
 }
 
@@ -152,7 +159,9 @@ function snapshotProblemLabel(snapshotState: StatusSnapshotState): string | null
   return null;
 }
 
-function activityLabel(snapshot: Pick<StatusSnapshot, "activityLabel" | "activeScope">): string | null {
+function activityLabel(
+  snapshot: Pick<StatusSnapshot, "activityLabel" | "activeScope">,
+): string | null {
   return snapshot.activityLabel ?? snapshot.activeScope;
 }
 
@@ -162,7 +171,8 @@ export function parseStatusConfig(rawConfig: unknown, source = "config.json"): S
   // still loads; the example default applies.
   const status = config.status === undefined ? {} : requireObject(config.status, source, "status");
   rejectUnsupportedKeys(status, ["enabled"], source, "status");
-  const enabled = status.enabled === undefined ? true : requireBoolean(status.enabled, source, "status.enabled");
+  const enabled =
+    status.enabled === undefined ? true : requireBoolean(status.enabled, source, "status.enabled");
 
   // `notify` is optional too; only `enabled` is defined today.
   const notify = config.notify === undefined ? {} : requireObject(config.notify, source, "notify");
@@ -250,7 +260,11 @@ export function writeSurfaceConfig(
   renameSync(tmp, resolved);
 }
 
-function readStatusConfigFile(configPath: string, examplePath: string, legacyPath?: string): { sourcePath: string; rawConfig: string } {
+function readStatusConfigFile(
+  configPath: string,
+  examplePath: string,
+  legacyPath?: string,
+): { sourcePath: string; rawConfig: string } {
   try {
     return { sourcePath: configPath, rawConfig: readFileSync(configPath, "utf8") };
   } catch (error) {
@@ -362,26 +376,29 @@ export function observeStatus(
   const sequence = observation.sequence;
   const lastActivityAtMs = state.lastActivityAtMs;
   const lastActivitySequence = state.lastActivitySequence;
-  const olderThanLastActivity = lastActivityAtMs != null && (
-    updatedAt < lastActivityAtMs ||
-    (updatedAt === lastActivityAtMs && lastActivitySequence != null && sequence < lastActivitySequence)
-  );
+  const olderThanLastActivity =
+    lastActivityAtMs != null &&
+    (updatedAt < lastActivityAtMs ||
+      (updatedAt === lastActivityAtMs &&
+        lastActivitySequence != null &&
+        sequence < lastActivitySequence));
   if (olderThanLastActivity) return state;
 
-  const blockedByLocalOverride = state.localOverrideAtMs != null && (
-    updatedAt < state.localOverrideAtMs ||
-    (updatedAt === state.localOverrideAtMs && state.localOverrideSequence != null && sequence <= state.localOverrideSequence)
-  );
+  const blockedByLocalOverride =
+    state.localOverrideAtMs != null &&
+    (updatedAt < state.localOverrideAtMs ||
+      (updatedAt === state.localOverrideAtMs &&
+        state.localOverrideSequence != null &&
+        sequence <= state.localOverrideSequence));
   if (blockedByLocalOverride) return state;
 
   const phase = observation.phase;
   const activeNow = phase === "active" || observation.active === true;
   const activeSinceMs = activeNow
-    ? observation.activeSince ?? state.activeSinceMs ?? updatedAt
+    ? (observation.activeSince ?? state.activeSinceMs ?? updatedAt)
     : null;
-  const waitingSinceMs = phase === "waiting"
-    ? observation.waitingSince ?? state.waitingSinceMs ?? updatedAt
-    : null;
+  const waitingSinceMs =
+    phase === "waiting" ? (observation.waitingSince ?? state.waitingSinceMs ?? updatedAt) : null;
 
   return {
     ...state,
@@ -390,7 +407,7 @@ export function observeStatus(
     lastActivitySequence: sequence,
     activeNow,
     activeSinceMs,
-    activeScope: activeNow ? observation.activeScope ?? null : null,
+    activeScope: activeNow ? (observation.activeScope ?? null) : null,
     waitingSinceMs,
     phase,
     latestEvent: observation.latestEvent ?? null,
@@ -403,7 +420,10 @@ export function observeStatus(
   };
 }
 
-export function forceStatusAfterInterrupt(state: SubagentStatusState, now: number): SubagentStatusState {
+export function forceStatusAfterInterrupt(
+  state: SubagentStatusState,
+  now: number,
+): SubagentStatusState {
   if (state.source === "claude") return state;
 
   return {
@@ -426,7 +446,10 @@ export function forceStatusAfterInterrupt(state: SubagentStatusState, now: numbe
   };
 }
 
-function classifyProblemState(state: SubagentStatusState, now: number): Pick<StatusSnapshot, "kind" | "statusLabel"> {
+function classifyProblemState(
+  state: SubagentStatusState,
+  now: number,
+): Pick<StatusSnapshot, "kind" | "statusLabel"> {
   const problemLabel = snapshotProblemLabel(state.snapshotState);
   const hasValidSnapshot = state.lastActivityAtMs != null;
 
@@ -498,15 +521,14 @@ export function classifyStatus(state: SubagentStatusState, now: number): StatusS
     statusLabel = classified.statusLabel;
   }
 
-  const activeDurationText = state.activeSinceMs == null
-    ? null
-    : formatElapsedDuration(now - state.activeSinceMs);
-  const waitingDurationText = state.waitingSinceMs == null
-    ? null
-    : formatElapsedDuration(now - state.waitingSinceMs);
-  const snapshotProblemText = state.snapshotProblemSinceMs == null
-    ? null
-    : formatElapsedDuration(now - state.snapshotProblemSinceMs);
+  const activeDurationText =
+    state.activeSinceMs == null ? null : formatElapsedDuration(now - state.activeSinceMs);
+  const waitingDurationText =
+    state.waitingSinceMs == null ? null : formatElapsedDuration(now - state.waitingSinceMs);
+  const snapshotProblemText =
+    state.snapshotProblemSinceMs == null
+      ? null
+      : formatElapsedDuration(now - state.snapshotProblemSinceMs);
 
   return {
     kind,
@@ -538,7 +560,8 @@ export function advanceStatusState(
   const transition =
     state.currentKind !== "stalled" && snapshot.kind === "stalled"
       ? "stalled"
-      : state.currentKind === "stalled" && (snapshot.kind === "active" || snapshot.kind === "waiting")
+      : state.currentKind === "stalled" &&
+          (snapshot.kind === "active" || snapshot.kind === "waiting")
         ? "recovered"
         : null;
 
@@ -583,19 +606,26 @@ export function formatStatusLine(name: string, snapshot: StatusSnapshot): string
   }
 
   if (snapshot.kind === "active") {
-    return boundStatusLine(`${boundedName} running ${snapshot.elapsedText}, ${formatActiveDetail(snapshot)}.`);
+    return boundStatusLine(
+      `${boundedName} running ${snapshot.elapsedText}, ${formatActiveDetail(snapshot)}.`,
+    );
   }
 
   if (snapshot.kind === "waiting") {
-    const problem = snapshot.statusLabel && snapshot.statusLabel !== "done"
-      ? ` (${snapshot.statusLabel})`
-      : snapshot.statusLabel === "done"
-        ? " (done)"
-        : "";
-    return boundStatusLine(`${boundedName} running ${snapshot.elapsedText}, ${formatWaitingDetail(snapshot)}${problem}.`);
+    const problem =
+      snapshot.statusLabel && snapshot.statusLabel !== "done"
+        ? ` (${snapshot.statusLabel})`
+        : snapshot.statusLabel === "done"
+          ? " (done)"
+          : "";
+    return boundStatusLine(
+      `${boundedName} running ${snapshot.elapsedText}, ${formatWaitingDetail(snapshot)}${problem}.`,
+    );
   }
 
-  return boundStatusLine(`${boundedName} running ${snapshot.elapsedText}, ${formatStalledDetail(snapshot)}.`);
+  return boundStatusLine(
+    `${boundedName} running ${snapshot.elapsedText}, ${formatStalledDetail(snapshot)}.`,
+  );
 }
 
 export function formatTransitionLine(
@@ -606,7 +636,8 @@ export function formatTransitionLine(
   const boundedName = normalizeStatusName(name);
 
   if (transition === "recovered") {
-    const detail = snapshot.kind === "waiting" ? formatWaitingDetail(snapshot) : formatActiveDetail(snapshot);
+    const detail =
+      snapshot.kind === "waiting" ? formatWaitingDetail(snapshot) : formatActiveDetail(snapshot);
     return boundStatusLine(`${boundedName} running ${snapshot.elapsedText}, recovered; ${detail}.`);
   }
 
