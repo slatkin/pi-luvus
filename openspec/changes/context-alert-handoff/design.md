@@ -43,10 +43,11 @@ Alternative: put everything in `luvus-done.ts`. That file is already 450 lines a
 
 ### D3. Check at `turn_end`, deliver as `steer`, the alert is a takeover
 
-In `luvus-done.ts`, a `turn_end` handler runs only when `PI_LUVUS_SESSION` is set, the alert is on, the latch is not set, and `luvus_done` has not been called. It skips turns whose message has `stopReason` `error` or `aborted`. The handler sets the latch, calls `pi.sendUserMessage(alertText(...), { deliverAs: "steer" })`, and starts the `alert` log row without waiting for it. The latch is per pi process, the same as `doneCalled`, so a resume in a new process can fire the alert again. The latch is set before the send, so a failed send gives no second alert.
+In `luvus-done.ts`, the alert check goes in the existing `turn_end` handler (the one that calls `recorder.turnEnd`), after the recorder call. A second `turn_end` handler also works. The check runs only when `PI_LUVUS_SESSION` is set, the alert is on, the latch is not set, and `luvus_done` has not been called. It skips turns whose message has `stopReason` `error` or `aborted`. It sets the latch, sets `userTookOver = true`, calls `pi.sendUserMessage(alertText(...), { deliverAs: "steer" })` without waiting for it, and starts the `alert` log row without waiting for it. The latch is per pi process, the same as `doneCalled`, so a resume in a new process can fire the alert again. The latch is set before the send, so a failed send gives no second alert.
 
 The alert goes through the `input` handler, so the session is marked as taken over (see Context). This change accepts that and adds no exception:
-- An auto-exit child does not auto-exit after the alert. If it ends a turn without calling `luvus_done`, it stays open and gets the completion nudge. So a late steer (one that arrives after the loop read its queue) cannot cause a `done` before the alert: the takeover mark is set in the `input` handler, which runs before the steer is queued.
+- An auto-exit child does not auto-exit after the alert. If it ends a turn without calling `luvus_done`, it stays open and gets the completion nudge.
+- The handler sets `userTookOver` itself, before the send. The `input` handler also sets it later, but the send is not awaited, so `agent_end` could run before that `input` handler when the steer is late. With the mark set first, a late steer cannot cause an auto-exit `done` before the handoff, whatever the order of the async steps.
 - When the latch is set, `scheduleAgentEndNudge` sends `handoffNudgeText()` in place of `NUDGE_TEXT`. The generic text says "your last message was already delivered as your report", which is wrong after an alert.
 
 `followUp` is wrong for the alert, because pi delivers it only when the agent has no more work.
@@ -65,9 +66,9 @@ Alternative: a separate `luvus_handoff` tool. That adds a fourth control tool to
 
 ### D5. Parent side
 
-- `PollResult.reason` gets `"handoff"` and an optional `handoff: { message }`. `interpretExitSidecar` maps `type: "handoff"` to it. If `message` is not a non-empty string, it uses the placeholder `(handoff text missing)`.
+- `PollResult.reason` gets `"handoff"` and an optional `handoff: { message }`. `interpretExitSidecar` maps `type: "handoff"` to it with `exitCode: 0`, the same as `done` and `ping`. If `message` is not a non-empty string, it uses the placeholder `(handoff text missing)`.
 - `SubagentResult` (`index.ts:506`) gets `handoff?: { message }`, which is copied from the `PollResult` where `ping` is copied (`index.ts:1865`).
-- `deliverSubagentCompletion` gets a `handoff` branch next to the `ping` branch. It sends `customType: "luvus_handoff"`, with content that starts `Sub-agent "<name>" handed off at the context alert (<elapsed>). The task is not complete.`, followed by the handoff text and `sessionRef`, and with `{ triggerTurn: true, deliverAs: "steer" }`. `luvus_handoff` gets a message renderer like the `luvus_ping` one. `deliverSubagentCompletion` is added to the existing `__test__` export.
+- `deliverSubagentCompletion` gets a `handoff` branch next to the `ping` branch. It sends `customType: "luvus_handoff"`, with content that starts `Sub-agent "<name>" handed off at the context alert (<elapsed>). The task is not complete.`, followed by the handoff text, the line `Start a new subagent with this handoff in its task. Do not resume this session.`, and `Session: <file>`. It does not use `sessionRef`, because that holds a `Resume: pi --session` line, which tells the parent to do the opposite. The message uses `{ triggerTurn: true, deliverAs: "steer" }`. `luvus_handoff` gets a message renderer like the `luvus_ping` one. `deliverSubagentCompletion` is added to the existing `__test__` export.
 - `run.ts`: the close rule accepts `type` `done` or `handoff`. It still reads the raw sidecar.
 
 ### D6. Log rows and server session
@@ -85,7 +86,7 @@ Row fields: `at`, `event`, `luvusSession`, `child` (`PI_LUVUS_NAME`), `session` 
 - [The model ignores the alert or finishes the task] → The session stays open and the nudge asks for `luvus_done` with `handoff`. If the child finishes with a plain `luvus_done`, the `alert` row with no `handoff` row shows this in the log.
 - [The alert arrives while work is not committed] → The alert text tells the child to commit, or to list the uncommitted changes in the handoff.
 - [A threshold above the compaction point never fires] → This is the user's decision. The README states it.
-- [An async `input` handler from another extension delays the steer past the loop's read] → The takeover mark is already set, so the session stays open, and pi delivers the queued steer at the next prompt or with the nudge. The user's live acceptance covers this. There is no test.
+- [An async `input` handler from another extension delays the steer past the loop's read] → The `turn_end` handler already set the takeover mark, so the session stays open, and pi delivers the queued steer at the next prompt or with the nudge. The user's live acceptance covers this. There is no test.
 - [pi changes how steer messages or `input` handlers work] → The unit tests use a fake `pi` whose `sendUserMessage` fires the `input` handlers. The user's live acceptance checks the real pi behavior.
 - [`handoffs.jsonl` grows with no limit] → One short line for each event. Rotation is out of scope.
 

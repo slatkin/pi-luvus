@@ -2,7 +2,7 @@
 
 ## Why
 
-A subagent that runs for a long time fills its context window. Its work then becomes worse, or pi compacts the context and the agent loses detail. At this time, nothing tells the child to stop and pass its work to a fresh child. An opt-in context alert lets the child write a handoff while it still has room, and lets the orchestrator (a pi parent or Claude Code) start a successor.
+A subagent that runs for a long time fills its context window. Its work then becomes worse, or pi compacts the context and the agent loses detail. At this time, nothing tells the child to stop and pass its work to a fresh child. An opt-in context alert lets the child write a handoff while it still has room, and lets the orchestrator (a pi parent or Claude Code) start a successor. For semi-long-term testing, the user also wants to count how many handoffs occur in each Luvus server session, so the child records each alert and handoff in a log.
 
 ## What Changes
 

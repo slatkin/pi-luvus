@@ -47,12 +47,12 @@ A sub-agent session SHALL end its run when the child calls the `luvus_done` tool
 - **THEN** the tool returns an error, no sidecar is written, and the session stays open
 
 ### Requirement: Pi parent receives a handoff
-When a pi parent reads a child's `.exit` sidecar with `type` `handoff`, it SHALL end the child's run with the reason `handoff`, and SHALL deliver one message that triggers a turn. The message SHALL say that the named child handed off, and SHALL contain the handoff text and the child's session file. A `handoff` sidecar whose `message` is not a non-empty string SHALL be delivered with a placeholder text that says the handoff text is missing.
+When a pi parent reads a child's `.exit` sidecar with `type` `handoff`, it SHALL end the child's run with the reason `handoff`, and SHALL deliver one message that triggers a turn. The message SHALL say that the named child handed off, SHALL contain the handoff text and the child's session file, and SHALL tell the parent to start a new subagent and not to resume the session.
 
 #### Scenario: Handoff delivered to the parent
 - **WHEN** a pi parent's child exits with a `handoff` sidecar
-- **THEN** the parent gets a message that names the child, holds the handoff text and the session file, and starts a parent turn
+- **THEN** the parent gets a message that names the child, holds the handoff text and the session file, says to start a new subagent and not to resume, and starts a parent turn
 
 #### Scenario: Handoff without text
-- **WHEN** the sidecar is `{"type":"handoff"}` with no `message`
+- **WHEN** the sidecar is `{"type":"handoff"}` with no `message`, or a `message` that is not a non-empty string
 - **THEN** the parent gets the handoff message with a placeholder that says the text is missing
