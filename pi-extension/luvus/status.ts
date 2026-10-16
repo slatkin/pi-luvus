@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentConfigDir } from "./agent-defs.ts";
 import { DEFAULT_SURFACE_PLACEMENT, parseSurfacePlacement, type SurfacePlacement } from "./luvus.ts";
+import { parseContextAlertConfig, type ContextAlertConfig } from "./context-alert.ts";
 
 export const SNAPSHOT_STALLED_AFTER_MS = 60_000;
 export const DEFAULT_STATUS_LINE_LIMIT = 4;
@@ -36,6 +37,8 @@ export interface StatusConfig {
   lineLimit: number;
   /** `notify.enabled` — turn-end notifications, default `true`. */
   notifyEnabled: boolean;
+  /** `contextAlert` — subagent context alert, default off. */
+  contextAlert: ContextAlertConfig;
 }
 
 export type StatusObservation =
@@ -167,10 +170,13 @@ export function parseStatusConfig(rawConfig: unknown, source = "config.json"): S
   const notifyEnabled =
     notify.enabled === undefined ? true : requireBoolean(notify.enabled, source, "notify.enabled");
 
+  const contextAlert = parseContextAlertConfig(config.contextAlert, source);
+
   return {
     enabled,
     lineLimit: DEFAULT_STATUS_LINE_LIMIT,
     notifyEnabled,
+    contextAlert,
   };
 }
 

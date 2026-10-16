@@ -58,6 +58,10 @@ The extension reads `config.json` from `~/.pi/agent/extensions/pi-luvus/` (under
 | Key              | Type    | Default | Description                                                                                                                    |
 | ---------------- | ------- | ------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `notify.enabled` | boolean | `true`  | Turns the turn-end notification off. Set it to `false` if Luvus already cues your pi panes for status changes.                  |
+| `contextAlert.enabled` | boolean | `false` | Turns the subagent context alert on. When it is on, a subagent child whose context usage reaches the threshold gets one steer message that tells it to stop and hand off with `luvus_done` and its `handoff` parameter. |
+| `contextAlert.threshold` | number \| string | `200000` | The alert threshold: a context token count, or a percentage of the model's context window as a string (`"80%"`). Select a value below the compaction point — a threshold at or above it never fires. |
+
+Like a bad `status` block, a bad `contextAlert` block stops the extension from loading in the parent pi session.
 
 The `status` and `surface` keys are documented in [Configuration](docs/guide.md#configuration).
 

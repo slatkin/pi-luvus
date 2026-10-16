@@ -5,5 +5,9 @@
   "notify": {
     "enabled": true
   },
+  "contextAlert": {
+    "enabled": false,
+    "threshold": 200000
+  },
   "surface": "right"
 }

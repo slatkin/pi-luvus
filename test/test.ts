@@ -507,6 +507,7 @@ describe("status.ts", () => {
       enabled: false,
       lineLimit: 4,
       notifyEnabled: true,
+      contextAlert: { enabled: false, threshold: { kind: "tokens", value: 200000 } },
     });
   });
 
@@ -537,6 +538,7 @@ describe("status.ts", () => {
       enabled: true,
       lineLimit: 4,
       notifyEnabled: true,
+      contextAlert: { enabled: false, threshold: { kind: "tokens", value: 200000 } },
     });
   });
 
@@ -554,6 +556,7 @@ describe("status.ts", () => {
         enabled: true,
         lineLimit: 4,
         notifyEnabled: true,
+        contextAlert: { enabled: false, threshold: { kind: "tokens", value: 200000 } },
       });
     });
   });
