@@ -80,11 +80,15 @@ The skill launcher SHALL find the package root, meaning a directory that holds `
 - **THEN** the prompt the child receives ends with a footer containing `luvus agent send orch` and pane `12`
 
 ### Requirement: Close on done
-After the child exits, the skill-path run wrapper SHALL print `__SUBAGENT_DONE_<exit code>__`. It SHALL then close its own pane through Luvus only when `<session>.exit` parses as JSON with `type` equal to `done`, and only after a grace period. The grace period SHALL default to 5000 ms, SHALL be set per launch with `start --close-grace-ms <n>`, and SHALL be stored in the launch spec so that a resume reuses it. A value of `0` closes at once. For any other `.exit` content, unparseable content, or no `.exit`, the pane MUST stay open with the sentinel visible. The wrapper MUST NOT delete the `.exit` file.
+After the child exits, the skill-path run wrapper SHALL print `__SUBAGENT_DONE_<exit code>__`. It SHALL then close its own pane through Luvus only when `<session>.exit` parses as JSON with `type` equal to `done` or `handoff`, and only after a grace period. The grace period SHALL default to 5000 ms, SHALL be set per launch with `start --close-grace-ms <n>`, and SHALL be stored in the launch spec so that a resume reuses it. A value of `0` closes at once. For any other `.exit` content, unparseable content, or no `.exit`, the pane MUST stay open with the sentinel visible. The wrapper MUST NOT delete the `.exit` file.
 
 #### Scenario: Clean completion
 - **WHEN** the child calls `luvus_done` and pi exits
 - **THEN** after the grace period the child's pane closes, and `<session>.exit` still holds `{"type":"done"}`
+
+#### Scenario: Handoff completion
+- **WHEN** the child calls `luvus_done` with a `handoff` and pi exits
+- **THEN** after the grace period the child's pane closes, and `<session>.exit` still holds the `handoff` sidecar
 
 #### Scenario: External wait observes done before close
 - **WHEN** an orchestrator is blocked in `luvus wait agent-status <pane> --status done,blocked` and the child completes with `luvus_done` under the default grace period
@@ -103,7 +107,7 @@ After the child exits, the skill-path run wrapper SHALL print `__SUBAGENT_DONE_<
 - **THEN** the pane stays open showing `__SUBAGENT_DONE_<code>__`
 
 #### Scenario: Malformed sidecar
-- **WHEN** `<session>.exit` holds text that is not JSON, or JSON whose `type` is not `done`
+- **WHEN** `<session>.exit` holds text that is not JSON, or JSON whose `type` is not `done` or `handoff`
 - **THEN** the pane stays open
 
 ### Requirement: Resume in a new pane
@@ -141,3 +145,14 @@ The CLI SHALL provide `last-message --session <file>`, which prints the text of 
 #### Scenario: Cross-check a report
 - **WHEN** an orchestrator runs `last-message --session <file>` on a finished child's session
 - **THEN** stdout is the text blocks of the last assistant message that has non-empty text
+
+### Requirement: Skill documents the handoff sidecar
+`SKILL.md` SHALL tell the orchestrator that a child can end with `{"type":"handoff","message":...}` in `<session>.exit`. It SHALL say that the task is not complete, that the handoff text is in the sidecar, that the pane closes itself after the close grace as for `done`, and that the orchestrator continues the task with a new child through `start`, with the handoff text in the brief.
+
+#### Scenario: Orchestrator reads a handoff
+- **WHEN** an orchestrator follows `SKILL.md` and finds a `handoff` sidecar
+- **THEN** the skill tells it to start a new child with the handoff text in its brief, not to resume the old session
+
+#### Scenario: Pane gone after the grace
+- **WHEN** a `wait` on a child's pane finds no pane after the close grace
+- **THEN** the skill tells the orchestrator to read `<session>.exit`, where `done` means finished and `handoff` means continue with a new child

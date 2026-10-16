@@ -7,7 +7,7 @@ Defines how a sub-agent session reliably reaches completion: explicit `luvus_don
 ## Requirements
 
 ### Requirement: Explicit exit only
-A sub-agent session SHALL end its run (writing the `done` `.exit` sidecar) when the child calls the `luvus_done` tool or the `caller_ping` tool. Additionally, when the session runs with auto-exit active (`PI_LUVUS_AUTO_EXIT=1`, set from `auto-exit: true` agent frontmatter), the latest assistant message of the ending turn does not carry `stopReason: "aborted"`, and the user has not taken over the session, the child extension SHALL write the `done` `.exit` sidecar from the `agent_end` event so the session exits automatically. The `auto-exit` frontmatter field and the `PI_LUVUS_AUTO_EXIT` environment variable SHALL continue to drive the `interactive` default and the task hint wording.
+A sub-agent session SHALL end its run when the child calls the `luvus_done` tool or the `caller_ping` tool. `luvus_done` writes the `done` `.exit` sidecar, or the `handoff` sidecar when it is called with a `handoff` (see "Handoff exit"). Additionally, when the session runs with auto-exit active (`PI_LUVUS_AUTO_EXIT=1`, set from `auto-exit: true` agent frontmatter), the latest assistant message of the ending turn does not carry `stopReason: "aborted"`, and the user has not taken over the session, the child extension SHALL write the `done` `.exit` sidecar from the `agent_end` event so the session exits automatically. The `auto-exit` frontmatter field and the `PI_LUVUS_AUTO_EXIT` environment variable SHALL continue to drive the `interactive` default and the task hint wording.
 
 #### Scenario: Auto-exit agent finishes its turn
 - **WHEN** a sub-agent with `auto-exit: true` finishes a turn normally without calling `luvus_done`
@@ -28,6 +28,10 @@ A sub-agent session SHALL end its run (writing the `done` `.exit` sidecar) when 
 #### Scenario: Explicit exit
 - **WHEN** the child calls `luvus_done`
 - **THEN** the session exits and the parent receives the completion as before
+
+#### Scenario: Explicit exit with handoff
+- **WHEN** the child calls `luvus_done` with a `handoff`
+- **THEN** the session exits with the `handoff` sidecar instead of the `done` sidecar
 
 ### Requirement: Error exit is preserved
 When a sub-agent's turn ends with the latest assistant message carrying `stopReason: "error"`, the child extension SHALL still write the error `.exit` sidecar so the parent learns about the provider failure promptly — including auto-exit agents, whose normal-completion exit path does not apply to error turns.
@@ -91,3 +95,29 @@ After publishing a terminal status (`done` or `blocked`), the child's `session_s
 #### Scenario: Shutdown without completion
 - **WHEN** the session shuts down without having published `done` or `blocked`
 - **THEN** the status lease is released
+
+### Requirement: Handoff exit
+`luvus_done` SHALL accept an optional `handoff` string. When `handoff` is present and holds non-whitespace text, the tool SHALL publish the terminal status `done`, write `{"type":"handoff","message":"<handoff>"}` to the `.exit` sidecar, and shut the session down. When `handoff` is absent, the tool SHALL behave as before and write `{"type":"done"}`. When `handoff` is present but empty or whitespace only, the tool MUST fail with an error and the session MUST stay open.
+
+#### Scenario: Done with handoff
+- **WHEN** a child calls `luvus_done` with `handoff` set to `"Goal: X. Done: A. Left: B."`
+- **THEN** `<session>.exit` holds `{"type":"handoff","message":"Goal: X. Done: A. Left: B."}`, the pane status is `done`, and the session shuts down
+
+#### Scenario: Done without handoff
+- **WHEN** a child calls `luvus_done` with no parameters
+- **THEN** `<session>.exit` holds `{"type":"done"}` as before
+
+#### Scenario: Empty handoff
+- **WHEN** a child calls `luvus_done` with `handoff` set to `"  "`
+- **THEN** the tool returns an error, no sidecar is written, and the session stays open
+
+### Requirement: Pi parent receives a handoff
+When a pi parent reads a child's `.exit` sidecar with `type` `handoff`, it SHALL end the child's run with the reason `handoff`, and SHALL deliver one message that triggers a turn. The message SHALL say that the named child handed off, SHALL contain the handoff text and the child's session file, and SHALL tell the parent to start a new subagent and not to resume the session.
+
+#### Scenario: Handoff delivered to the parent
+- **WHEN** a pi parent's child exits with a `handoff` sidecar
+- **THEN** the parent gets a message that names the child, holds the handoff text and the session file, says to start a new subagent and not to resume, and starts a parent turn
+
+#### Scenario: Handoff without text
+- **WHEN** the sidecar is `{"type":"handoff"}` with no `message`, or a `message` that is not a non-empty string
+- **THEN** the parent gets the handoff message with a placeholder that says the text is missing
