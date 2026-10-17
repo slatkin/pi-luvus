@@ -9,9 +9,9 @@ All tests use fakes and fake `LUVUS_*` values. No task runs a live Luvus or star
 
 ## 2. Producers
 
-- [ ] 2.1 Change `buildSpawnEnvParts` (`supervisor.ts`) to `PI_CODING_AGENT_DIR` plus `encodeChildEnv(...)`, and keep its signature. Verify: `supervisor.test.ts` (the deepEqual spawn-env test, the role and auto-exit env tests) and the `test.ts` roster env test pass unchanged.
-- [ ] 2.2 Change `cli.ts startCommand` to build `specEnv` with `encodeChildEnv`, and pass `denyTools: [...resolveDenyTools(definition)]`. Do not write `surface` or `parentRosterFile`. Verify: the existing `cli.ts start` tests pass, including `PI_LUVUS_SURFACE` being `undefined` in the spec.
-- [ ] 2.3 Add `cli.ts start` tests in `test/cli.test.ts` for the three new spec-delta scenarios: `spawning: false` gives `PI_DENY_TOOLS=luvus_spawn,luvus_interrupt,luvus_list,luvus_resume`; `deny-tools: claude` gives `PI_DENY_TOOLS=claude`; no field gives no `PI_DENY_TOOLS`. In the CRLF test in `test/test.ts`, add `spawning: false` and `deny-tools: a, b` to the role and assert that the LF and CRLF results match. Verify: `pnpm test` passes.
+- [x] 2.1 Change `buildSpawnEnvParts` (`supervisor.ts`) to `PI_CODING_AGENT_DIR` plus `encodeChildEnv(...)`, and keep its signature. Verify: `supervisor.test.ts` (the deepEqual spawn-env test, the role and auto-exit env tests) and the `test.ts` roster env test pass unchanged.
+- [x] 2.2 Change `cli.ts startCommand` to build `specEnv` with `encodeChildEnv`, and pass `denyTools: [...resolveDenyTools(definition)]`. Do not write `surface` or `parentRosterFile`. Verify: the existing `cli.ts start` tests pass, including `PI_LUVUS_SURFACE` being `undefined` in the spec.
+- [x] 2.3 Add `cli.ts start` tests in `test/cli.test.ts` for the three new spec-delta scenarios: `spawning: false` gives `PI_DENY_TOOLS=luvus_spawn,luvus_interrupt,luvus_list,luvus_resume`; `deny-tools: claude` gives `PI_DENY_TOOLS=claude`; no field gives no `PI_DENY_TOOLS`. In the CRLF test in `test/test.ts`, add `spawning: false` and `deny-tools: a, b` to the role and assert that the LF and CRLF results match. Verify: `pnpm test` passes.
 
 ## 3. Readers
 
