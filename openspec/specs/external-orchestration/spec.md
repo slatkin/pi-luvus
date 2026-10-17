@@ -39,7 +39,7 @@ The skill launcher SHALL find the package root, meaning a directory that holds `
 - **THEN** it exits non-zero with an error saying it must run inside Luvus, and creates nothing
 
 ### Requirement: Role resolution
-`start` SHALL resolve a role name with the same lookup the extension uses: the `.pi/agents/` directory of the child's working directory, then the global agents directory (`PI_CODING_AGENT_DIR`, or `~/.pi/agent`, followed by `agents/`), then the package's `agents/`. The first file that exists wins. It SHALL use the frontmatter `model`, `thinking` and `tools` fields, the `auto-exit` flag, and the body as the appended system prompt. Role files with LF or CRLF line endings SHALL parse the same way. An unknown role, or a role whose `model` is empty, MUST fail before a pane is split.
+`start` SHALL resolve a role name with the same lookup the extension uses: the `.pi/agents/` directory of the child's working directory, then the global agents directory (`PI_CODING_AGENT_DIR`, or `~/.pi/agent`, followed by `agents/`), then the package's `agents/`. The first file that exists wins. It SHALL use the frontmatter `model`, `thinking` and `tools` fields, the `auto-exit` flag, the `spawning` flag and the `deny-tools` list, and the body as the appended system prompt. The child SHALL get the same denied tools that a pi-parent launch of the same role gives. Role files with LF or CRLF line endings SHALL parse the same way. An unknown role, or a role whose `model` is empty, MUST fail before a pane is split.
 
 #### Scenario: Auto-exit role
 - **WHEN** the resolved role's frontmatter has `auto-exit: true`
@@ -48,6 +48,18 @@ The skill launcher SHALL find the package root, meaning a directory that holds `
 #### Scenario: Control tools always present
 - **WHEN** the role's `tools` list omits `luvus_done`
 - **THEN** the child's `--tools` still includes `caller_ping`, `luvus_done` and `luvus_message`
+
+#### Scenario: Role denies spawning
+- **WHEN** the resolved role's frontmatter has `spawning: false`
+- **THEN** the child runs with `PI_DENY_TOOLS` naming `luvus_spawn`, `luvus_interrupt`, `luvus_list` and `luvus_resume`
+
+#### Scenario: Role denies listed tools
+- **WHEN** the resolved role's frontmatter has `deny-tools: claude` and no `spawning` line
+- **THEN** the child runs with `PI_DENY_TOOLS=claude`
+
+#### Scenario: Role denies nothing
+- **WHEN** the resolved role has no `spawning` line and no `deny-tools` line
+- **THEN** the child's env has no `PI_DENY_TOOLS`
 
 #### Scenario: Unknown role
 - **WHEN** no role file matches the given role name
@@ -59,7 +71,7 @@ The skill launcher SHALL find the package root, meaning a directory that holds `
 
 #### Scenario: CRLF role file
 - **WHEN** the role file uses CRLF line endings
-- **THEN** its model, tools, auto-exit flag and body resolve the same as the LF version
+- **THEN** its model, tools, auto-exit flag, spawning flag, deny-tools list and body resolve the same as the LF version
 
 ### Requirement: Launch contract
 `start` SHALL split a new pane next to the caller's pane without taking focus and name it after the child. It SHALL write a launch spec that starts pi with `--session`, the env vars `luvus-done.ts` reads (with `PI_LUVUS_SESSION` equal to `--session`), and the brief as the prompt. It SHALL then run that spec in the pane. On success it SHALL print exactly one JSON document on stdout, giving the pane id, the session file and the launch-spec path. Everything else SHALL go to stderr.
