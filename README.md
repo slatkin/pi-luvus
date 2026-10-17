@@ -41,7 +41,7 @@ A resumable pi session has no live pane and no OSC title. Luvus then shows only 
 
 The same module publishes the Luvus Bar widget `pi-luvus.pane-titles:pi-usage`. It shows three totals for the live pi panes: the pane count, the sum of the session costs, and the largest context token count in the group. The cost shows in dollars with two decimals. The context shows as tokens (`31k`, `1.3M`), not as a percentage: a session file has no context window size. The widget clears when the last pi pane closes.
 
-After you upgrade the package, unlink and link the module again to load the new manifest. Read [Usage widget (Luvus module)](docs/guide.md#usage-widget).
+The extension links the module by itself on start, and re-links it after an upgrade loads a new manifest. Set `module.autolink` to `false` to keep manual control. Read [Usage widget (Luvus module)](docs/guide.md#usage-widget).
 
 ### Resume pi sessions
 
@@ -58,6 +58,7 @@ The extension reads `config.json` from `~/.pi/agent/extensions/pi-luvus/` (under
 | Key              | Type    | Default | Description                                                                                                                    |
 | ---------------- | ------- | ------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `notify.enabled` | boolean | `true`  | Turns the turn-end notification off. Set it to `false` if Luvus already cues your pi panes for status changes.                  |
+| `module.autolink` | boolean | `true` | Links the bundled Luvus module on start. Set it to `false` to link the module yourself. |
 | `contextAlert.enabled` | boolean | `false` | Turns the subagent context alert on. When it is on, a subagent child whose context usage reaches the threshold gets one steer message that tells it to stop and hand off with `luvus_done` and its `handoff` parameter. |
 | `contextAlert.threshold` | number \| string | `200000` | The alert threshold: a context token count, or a percentage of the model's context window as a string (`"80%"`). Select a value below the compaction point — a threshold at or above it never fires. |
 

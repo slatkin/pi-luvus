@@ -5,6 +5,9 @@
   "notify": {
     "enabled": true
   },
+  "module": {
+    "autolink": true
+  },
   "contextAlert": {
     "enabled": false,
     "threshold": 200000

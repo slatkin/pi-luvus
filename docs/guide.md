@@ -32,7 +32,9 @@ A live pi pane publishes its OSC title to Luvus. A finished pi session has no pa
 
 ### Install
 
-Link the module with an absolute path:
+The extension links the module by itself on start. It checks `module info pi-luvus.pane-titles` and runs `module link` when the module is absent, points at another checkout, or reports an older version. Subagent children never link. A failed check stays quiet and the widget stays absent until the next start.
+
+To link it yourself, set `module.autolink` to `false` and run:
 
 ```bash
 luvus module link /ABSOLUTE/path/to/pi-luvus/luvus-module
@@ -50,7 +52,7 @@ The module also publishes the Luvus Bar widget `pi-luvus.pane-titles:pi-usage`. 
 
 The module updates the widget when it runs: at startup, on an agent status change, and when a pane closes. It reads only the session files whose modification time or size changed since the last run.
 
-An upgrade can change the widget declaration in `luvus-module.toml`. Unlink and link the module again after an upgrade to load the new manifest.
+An upgrade can change the widget declaration in `luvus-module.toml`. The next parent pi start re-links the module to load the new manifest. With `module.autolink` set to `false`, unlink and link the module again yourself after an upgrade.
 
 ### Remove
 
@@ -230,11 +232,16 @@ If an older install left a `config.json` at the package root, reads still honor 
   "notify": {
     "enabled": true
   },
+  "module": {
+    "autolink": true
+  },
   "surface": "right"
 }
 ```
 
 Git ignores `config.json`. Local overrides stay uncommitted.
+
+`"module.autolink"` controls the module link on start. It defaults to `true`. Set it to `false` to link the module yourself.
 
 `"notify.enabled"` controls the turn-end notification (see [Turn-end notification](#turn-end-notification)). It defaults to `true`. Set it to `false` if Luvus already cues your pi panes for status changes.
 

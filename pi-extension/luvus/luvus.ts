@@ -353,6 +353,34 @@ export async function pushNotificationAsync(
   await luvusAsync(["ui", "notification", "push", "--text", text, "--level", level]);
 }
 
+/** Shape of the `module info <id>` `.result` payload this backend consumes. */
+export interface LuvusModuleInfo {
+  id?: unknown;
+  root?: unknown;
+  version?: unknown;
+  enabled?: unknown;
+  [key: string]: unknown;
+}
+
+/**
+ * Read one module registration (`luvus module info <id>`) through the async
+ * call path, and so through the test seam. Returns the parsed `.result`
+ * object, or null when the module is absent or the call fails — callers
+ * treat a failed read as unknown, never as a throw.
+ */
+export async function getModuleInfoAsync(id: string): Promise<LuvusModuleInfo | null> {
+  try {
+    return (await luvusAsync(["module", "info", id])) as LuvusModuleInfo;
+  } catch {
+    return null;
+  }
+}
+
+/** Register a local module dir (`luvus module link <path>`). Throws on failure. */
+export async function linkModuleAsync(path: string): Promise<void> {
+  await luvusAsync(["module", "link", path]);
+}
+
 /** Shape of the `session list --json` `.result` payload this backend consumes. */
 export interface LuvusSessionList {
   sessions?: Array<{ name?: unknown; socket_path?: unknown; [key: string]: unknown }>;

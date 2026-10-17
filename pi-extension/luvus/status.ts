@@ -41,6 +41,8 @@ export interface StatusConfig {
   lineLimit: number;
   /** `notify.enabled` — turn-end notifications, default `true`. */
   notifyEnabled: boolean;
+  /** `module.autolink` — link the bundled Luvus module on start, default `true`. */
+  moduleAutolink: boolean;
   /** `contextAlert` — subagent context alert, default off. */
   contextAlert: ContextAlertConfig;
 }
@@ -180,12 +182,21 @@ export function parseStatusConfig(rawConfig: unknown, source = "config.json"): S
   const notifyEnabled =
     notify.enabled === undefined ? true : requireBoolean(notify.enabled, source, "notify.enabled");
 
+  // `module` is optional too; only `autolink` is defined today.
+  const module = config.module === undefined ? {} : requireObject(config.module, source, "module");
+  rejectUnsupportedKeys(module, ["autolink"], source, "module");
+  const moduleAutolink =
+    module.autolink === undefined
+      ? true
+      : requireBoolean(module.autolink, source, "module.autolink");
+
   const contextAlert = parseContextAlertConfig(config.contextAlert, source);
 
   return {
     enabled,
     lineLimit: DEFAULT_STATUS_LINE_LIMIT,
     notifyEnabled,
+    moduleAutolink,
     contextAlert,
   };
 }
