@@ -48,7 +48,7 @@ deps: send(message, opts)          // pi.sendMessage, so tests need no pi object
       statusConfig, shellReadyDelayMs, now()
 ```
 
-The supervisor owns the running map, the roster context and roster writes, the widget and status intervals, its own `AbortController`, and its event stream. Tool handlers do only the checks that come before a launch (self-spawn, Luvus availability). `resume` reads `<sessionPath>.launch.json` first and checks the session file and the record itself, so a Claude Code record without a session file still resumes.
+The supervisor owns the running map, the roster context and roster writes, the widget and status intervals, its own `AbortController`, and its event stream. Tool handlers do only the checks that come before a launch (self-spawn, Luvus availability, and for `luvus_spawn` the parent session file, which keeps its current error result). `resume` reads `<sessionPath>.launch.json` first and checks the session file and the record itself, so a Claude Code record without a session file still resumes.
 
 Alternative: a module singleton. Rejected, because a later move of the runtime state would touch the same code a second time, and tests would still need global resets.
 
@@ -105,7 +105,7 @@ afterExit     -                                    copy transcript, store claude
 
 - Spawn, pi: the same as today: the task artifact or the direct task, plus skill prompts.
 - Spawn, Claude Code: the same as today: the task as the last argument.
-- Resume, pi: when a `message` is given, write `buildLaunchMessagingHint(running names)` and then the message to `luvus-resume/<name>-<ts>.md`, and pass it as `@file`. With no message, no prompt is sent (as today). The resume also writes the record's role prompt to a file and passes `--system-prompt` or `--append-system-prompt` as the record's `systemPromptMode` selects, because a pi session does not store those flags.
+- Resume, pi: when a `message` is given, write `buildLaunchMessagingHint(running names)` and then the message to `luvus-resume/<name>-<ts>.md`, and pass it as `@file`. With no message, no prompt is sent (as today). The resume also writes the record's role prompt to a file and passes `--system-prompt` or `--append-system-prompt` as the record's `systemPromptMode` selects, because a pi session does not store those flags. When the record has no `systemPromptMode`, the spawn put the role prompt into the first task message, which the session keeps, so the resume passes no system-prompt flag.
 - Resume, Claude Code: `resume` reads `<sessionPath>.launch.json` first. When the record backend is `claude`, the run does not require the pi-style session file to exist and `entryCountBefore` is 0. The run passes `--resume <claudeSessionId>`, and then the message text when one is given. When there is no record and no session file, the tool keeps its `session file not found` error.
 
 ### D6. Delivery inside the supervisor
