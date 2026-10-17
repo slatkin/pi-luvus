@@ -2075,8 +2075,8 @@ export default function subagentsExtension(pi: ExtensionAPI) {
   // One Luvus notification when a turn ends in an unfocused parent pane.
   createTurnNotifier(process.env, statusConfig.notifyEnabled).register(pi);
 
-  // Keep the bundled Luvus module linked so the bar widget and the
-  // resumable-session titles run without a manual link step. Background
+  // Keep the bundled Luvus module linked so the resumable-session titles
+  // run without a manual link step. Background
   // only: never blocks startup and never throws.
   void ensureLuvusModuleLinked({ enabled: statusConfig.moduleAutolink });
 

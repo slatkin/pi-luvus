@@ -1,35 +1,18 @@
 id = "pi-luvus.pane-titles"
-name = "pi pane titles and usage"
-version = "0.1.0"
+name = "pi pane titles"
+version = "0.2.0"
 min_luvus_version = "0.14.1"
-description = "Publish titles for resumable pi sessions onto the AGENTS history rows, and Bar totals for the live pi panes."
-
-# The Bar widget that carries the pi pane totals.
-[[bars]]
-id = "pi-usage"
-title = "pi usage"
-region = "top-right"
+description = "Publish titles for resumable pi sessions onto the AGENTS history rows."
 
 # Repaint after a restart, on every agent status change, and when a pane
 # closes (the moment a pi session becomes a resumable row).
 [[startup]]
 command = ["node", "titles.ts"]
 
-[[startup]]
-command = ["node", "usage-bar.ts"]
-
 [[events]]
 on = "pane.agent_status_changed"
 command = ["node", "titles.ts"]
 
 [[events]]
-on = "pane.agent_status_changed"
-command = ["node", "usage-bar.ts"]
-
-[[events]]
 on = "pane.closed"
 command = ["node", "titles.ts"]
-
-[[events]]
-on = "pane.closed"
-command = ["node", "usage-bar.ts"]

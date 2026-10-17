@@ -1,7 +1,7 @@
 {
   "name": "pi-luvus",
   "version": "0.1.0",
-  "description": "pi integration for Luvus: subagents in panes, live agent status, Luvus bar and notifications",
+  "description": "pi integration for Luvus: subagents in panes, live agent status, turn-end notifications",
   "keywords": [
     "pi-package"
   ],

@@ -1,17 +1,17 @@
 /**
  * Luvus module auto-link — keep the packaged `luvus-module/` registered.
  *
- * The bar widget and the resumable-session titles both live in the Luvus
- * module `pi-luvus.pane-titles`. That module needs a manual
+ * The resumable-session titles live in the Luvus module
+ * `pi-luvus.pane-titles`. That module needs a manual
  * `luvus module link <path>` before Luvus runs it, so a fresh install shows
- * no widget until the user links it. This helper removes that step: on
+ * no titles until the user links it. This helper removes that step: on
  * startup the parent pi process checks `module info` and links the bundled
  * module dir when it is absent, points elsewhere, or reports an older
  * version.
  *
  * The check runs once per process, in the background. It never blocks the
  * pi event loop and never throws: a failed read means unknown, a failed
- * link means the widget stays absent until the next start.
+ * link means the titles stay missing until the next start.
  */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";

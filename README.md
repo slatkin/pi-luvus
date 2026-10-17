@@ -1,6 +1,6 @@
 # pi-luvus
 
-pi integration for [Luvus](https://luvus.dev). It runs async subagents in Luvus panes, reports live agent status, and adds Luvus bar and notification modules, and subagent management and orchestration skills that try to leverage Luvus features.
+pi integration for [Luvus](https://luvus.dev). It runs async subagents in Luvus panes, reports live agent status, and adds turn-end notifications, resumable-session titles, and subagent management and orchestration skills that try to leverage Luvus features.
 
 The subagent code descends from [HazAT/pi-interactive-subagents](https://github.com/HazAT/pi-interactive-subagents). The completion-nudge design comes from [maplezzk's port](https://github.com/maplezzk). Luvus is the only supported terminal host.
 
@@ -37,11 +37,7 @@ A subagent publishes `done` or `blocked` when it finishes. External orchestrator
 
 A resumable pi session has no live pane and no OSC title. Luvus then shows only the project folder on the AGENTS history row. The optional [`luvus-module/`](luvus-module/) gives the row a title from the session name, or the first prompt when the session has no name (the same 48-character rule as the live pane title). Read [Resumable session titles (Luvus module)](docs/guide.md#resumable-session-titles-luvus-module).
 
-### Luvus Bar usage widget
-
-The same module publishes the Luvus Bar widget `pi-luvus.pane-titles:pi-usage`. It shows three totals for the live pi panes: the pane count, the sum of the session costs, and the largest context token count in the group. The cost shows in dollars with two decimals. The context shows as tokens (`31k`, `1.3M`), not as a percentage: a session file has no context window size. The widget clears when the last pi pane closes.
-
-The extension links the module by itself on start, and re-links it after an upgrade loads a new manifest. Set `module.autolink` to `false` to keep manual control. Read [Usage widget (Luvus module)](docs/guide.md#usage-widget).
+The extension links the module by itself on start, and re-links it after an upgrade loads a new manifest. Set `module.autolink` to `false` to keep manual control.
 
 ### Resume pi sessions
 

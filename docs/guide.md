@@ -32,7 +32,7 @@ A live pi pane publishes its OSC title to Luvus. A finished pi session has no pa
 
 ### Install
 
-The extension links the module by itself on start. It checks `module info pi-luvus.pane-titles` and runs `module link` when the module is absent, points at another checkout, or reports an older version. Subagent children never link. A failed check stays quiet and the widget stays absent until the next start.
+The extension links the module by itself on start. It checks `module info pi-luvus.pane-titles` and runs `module link` when the module is absent, points at another checkout, or reports an older version. Subagent children never link. A failed check stays quiet and the titles stay missing until the next start.
 
 To link it yourself, set `module.autolink` to `false` and run:
 
@@ -45,14 +45,6 @@ Use an absolute path. A relative path fails, because the Luvus server resolves i
 The module repaints the titles at Luvus startup, on every agent status change, and when a pane closes. A closed pane is the moment a pi session becomes a resumable row.
 
 The module reads the session files from `$PI_CODING_AGENT_DIR/sessions`. The default is `~/.pi/agent/sessions`. If you set `PI_CODING_AGENT_DIR`, the Luvus server must see the same value. With no matching value, the module reads the default path and finds no sessions.
-
-### Usage widget
-
-The module also publishes the Luvus Bar widget `pi-luvus.pane-titles:pi-usage`. It shows three totals for the live pi panes: the pane count, the total session cost, and the largest context token count in the group. The cost shows in dollars with two decimals. The context shows as tokens (`31k`, `1.3M`), not as a percentage: a session file has no context window size. The widget clears when the last pi pane closes.
-
-The module updates the widget when it runs: at startup, on an agent status change, and when a pane closes. It reads only the session files whose modification time or size changed since the last run.
-
-An upgrade can change the widget declaration in `luvus-module.toml`. The next parent pi start re-links the module to load the new manifest. With `module.autolink` set to `false`, unlink and link the module again yourself after an upgrade.
 
 ### Remove
 
