@@ -48,7 +48,7 @@ deps: send(message, opts)          // pi.sendMessage, so tests need no pi object
       statusConfig, shellReadyDelayMs, now()
 ```
 
-The supervisor owns the running map, the roster context and roster writes, the widget and status intervals, its own `AbortController`, and its event stream. Tool handlers do only the checks that come before a launch (self-spawn, Luvus availability, session file), call one supervisor method, and format the acknowledgement.
+The supervisor owns the running map, the roster context and roster writes, the widget and status intervals, its own `AbortController`, and its event stream. Tool handlers do only the checks that come before a launch (self-spawn, Luvus availability, and for `luvus_spawn` the parent session file, which keeps its current error result). `resume` reads `<sessionPath>.launch.json` first and checks the session file and the record itself, so a Claude Code record without a session file still resumes.
 
 Alternative: a module singleton. Rejected, because a later move of the runtime state would touch the same code a second time, and tests would still need global resets.
 
@@ -72,8 +72,10 @@ The spawn resolves the agent defaults once, writes the record, and then builds t
 
 ```
 record + run binding + prompt  --buildLaunch(backend)-->  LaunchSpec  --> luvus-scripts/<name>-<id>.json
-run binding = { id, activityFile, rosterFile, sentinelFile?, artifactDir }   (new for each run)
+run binding = { id, activityFile, rosterFile, sentinelFile?, artifactDir, entryCountBefore }  (new for each run)
 ```
+
+`entryCountBefore` is 0 for a spawn and the entry count of the session file for a pi resume. A Claude Code run has no pi-style session file, so its `entryCountBefore` is 0 and the pi summary path does not apply.
 
 The record is written with a temp file and a rename, because a Claude Code completion updates it later with `claudeSessionId`. A record that is not valid is treated as missing (spec: Resume without a launch record).
 
@@ -95,20 +97,22 @@ extractResult session .jsonl (after entry N)       sentinel, then screen read
 afterExit     -                                    copy transcript, store claudeSessionId
 ```
 
+`copyClaudeSession` today returns the transcript basename, `<uuid>.jsonl`. The record stores the Claude session id without the `.jsonl` extension, because `claude --resume` takes the session id, not a file name. A Claude Code spawn does not create the pi-style session file; the record sits beside the path that a later `luvus_resume` uses as its `sessionPath`.
+
 `observeRunningSubagent`, `handleSubagentInterrupt`, and the two branches of `watchSubagent` each read the backend entry and no longer test `cli === "claude"` themselves.
 
 ### D5. Prompts for each kind of run
 
 - Spawn, pi: the same as today: the task artifact or the direct task, plus skill prompts.
 - Spawn, Claude Code: the same as today: the task as the last argument.
-- Resume, pi: when a `message` is given, write `buildLaunchMessagingHint(running names)` and then the message to `luvus-resume/<name>-<ts>.md`, and pass it as `@file`. With no message, no prompt is sent (as today).
-- Resume, Claude Code: `--resume <claudeSessionId>`, and then the message text when one is given.
+- Resume, pi: when a `message` is given, write `buildLaunchMessagingHint(running names)` and then the message to `luvus-resume/<name>-<ts>.md`, and pass it as `@file`. With no message, no prompt is sent (as today). The resume also writes the record's role prompt to a file and passes `--system-prompt` or `--append-system-prompt` as the record's `systemPromptMode` selects, because a pi session does not store those flags. When the record has no `systemPromptMode`, the spawn put the role prompt into the first task message, which the session keeps, so the resume passes no system-prompt flag.
+- Resume, Claude Code: `resume` reads `<sessionPath>.launch.json` first. When the record backend is `claude`, the run does not require the pi-style session file to exist and `entryCountBefore` is 0. The run passes `--resume <claudeSessionId>`, and then the message text when one is given. When there is no record and no session file, the tool keeps its `session file not found` error.
 
 ### D6. Delivery inside the supervisor
 
-`watchSubagent` and `deliverSubagentCompletion`/`deliverSubagentError` move into the supervisor and send through `deps.send`. A run carries `entryCountBefore` (0 for a spawn). The pi summary reads only the entries after it, which removes the resume-specific `present` closure. Details always hold `name`, `task` and `agent`. The session reference line changes from `Resume: pi --session <file>` to a line that names `luvus_resume` with the session file. The handoff message keeps its text that says not to resume.
+`watchSubagent` and `deliverSubagentCompletion`/`deliverSubagentError` move into the supervisor and send through `deps.send`. A run carries `entryCountBefore` (0 for a spawn and for a Claude Code resume). The pi summary reads only the entries after it, which removes the resume-specific `present` closure. Details always hold `name`, `task` and `agent`, for result, ping, handoff and error messages alike. The session reference line changes from `Resume: pi --session <file>` to a line that names `luvus_resume` with the session file. The `luvus_result` expanded renderer shows the same line, so its `Resume:  pi --session` line changes with it. The handoff message keeps its text that says not to resume.
 
-Claude Code results get `sessionFile` (the pi-style path that the record sits beside), so `luvus_resume` works with one input for both backends. `claudeSessionId` stays in the details for information.
+Claude Code results get `sessionFile` (the pi-style path that the record sits beside), so `luvus_resume` works with one input for both backends. `claudeSessionId` stays in the details for information. The record stores it without the `.jsonl` extension (D4).
 
 ### D7. Tests
 

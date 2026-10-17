@@ -23,6 +23,27 @@ luvus_spawn({ name: "Scout: DB", agent: "scout", task: "Map database schema" });
 // Both return immediately, results steer back independently
 ```
 
+### Resuming subagents
+
+`luvus_resume` starts a finished child again in a new pane from its session file. It resumes pi children and Claude Code children. For a child that `luvus_spawn` started, the resume restores the role configuration from the spawn: the agent, the working directory, the model, the tools, the role prompt, the denied tools and the auto-exit value. The pane keeps the display name from the spawn.
+
+`luvus_spawn` writes a launch record beside the child session file (`<session>.launch.json`). The record holds the values that the spawn resolved. A resume reads the record, so the resumed child keeps the role configuration from the spawn; it does not read the agent file again.
+
+A child result steers back with the child session file and names `luvus_resume` as the way to continue the child. It does not show a `pi --session` command.
+
+For a Claude Code child, the record stores the Claude Code session id when the run ends, and the result carries the session file path. `luvus_resume` resumes that session with `message` as the prompt. If the record has no stored id, the tool returns an error and starts nothing.
+
+A session with no launch record, for example one that the skill launched, resumes as a plain pi session named `Resume`. Its tool result says that the role configuration was not restored. When the session file is missing too, the tool returns an error and starts no pane.
+
+| Parameter     | Type    | Description                                                                                                                                                                 |
+| ------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sessionPath` | string  | Required. The child session file. For a Claude Code child, use the session path from its result.                                                                             |
+| `message`     | string  | The follow-up prompt. With no message, the child resumes without a prompt.                                                                                                   |
+| `surface`     | string  | `"right"` (default), `"down"` or `"tab"`. It overrides the `surface` key in `config.json` for this resume.                                                                   |
+| `autoExit`    | boolean | When absent, the launch record's auto-exit value applies. `false` runs the resumed child interactively.                                                                     |
+
+`luvus_resume` no longer takes a `name` parameter: the name comes from the launch record, or is `Resume` without one. `luvus_spawn` no longer takes `resumeSessionId`; use `luvus_resume` with the session file.
+
 ## Pane status
 
 The extension reports the live state of every pi pane to Luvus, including panes that never spawn a subagent. Without it, Luvus shows each pi pane as `idle`, even during a turn.
@@ -99,7 +120,7 @@ The package provides 5 main-session tools and 2 commands, plus 2 tools that run 
 | `luvus_interrupt` | Interrupt a running Pi-backed subagent's current turn                                        |
 | `luvus_message`   | Message the parent, a running child, or a running sibling without ending the session (async) |
 | `luvus_list`     | List available agent definitions                                                             |
-| `luvus_resume`    | Resume a previous sub-agent session (async)                                                  |
+| `luvus_resume`    | Resume a previous pi or Claude Code sub-agent with its spawn role (async)                    |
 
 | Command                        | Description                              |
 | -------------------------------------- | ---------------------------------------- |
@@ -124,6 +145,7 @@ The [guide](docs/guide.md) holds the full reference:
 
 - [Async subagent flow](docs/guide.md#async-subagent-flow): the decision model, status labels, and configuration.
 - [Spawning subagents](docs/guide.md#spawning-subagents): the `luvus_spawn` tool parameters.
+- [Resuming a subagent](docs/guide.md#resuming-a-subagent): the launch record, the `luvus_resume` parameters, and the fallback without a record.
 - [Interrupting](docs/guide.md#interrupting-a-running-subagent), [messaging](docs/guide.md#messaging-other-agents), and [`caller_ping`](docs/guide.md#caller_ping-child-to-parent-help-request).
 - [Custom agents](docs/guide.md#custom-agents): frontmatter, `session-mode`, `auto-exit`, the completion nudge, and `interactive`.
 - [Tool access control](docs/guide.md#tool-access-control), [role folders](docs/guide.md#role-folders), and the [tools widget](docs/guide.md#tools-widget).

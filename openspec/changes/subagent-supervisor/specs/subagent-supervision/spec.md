@@ -51,18 +51,26 @@ When `luvus_resume` is called with a session file that has a launch record, the 
 - **THEN** the resumed child runs without auto-exit, and its stalled and recovered transitions do not wake the parent
 
 ### Requirement: Resume without a launch record
-When the session file has no launch record, or the record cannot be read, `luvus_resume` SHALL resume a pi child with no agent, no denied tools, the parent's working directory and the display name `Resume`, and auto-exit on unless `autoExit` is false. The tool result SHALL say that no launch record was found and that the role configuration was not restored.
+When the session file has no launch record, or the record cannot be read, `luvus_resume` SHALL resume a pi child with no agent, no denied tools, the parent's working directory and the display name `Resume`, and auto-exit on unless `autoExit` is false. The tool result SHALL say that no launch record was found and that the role configuration was not restored. When the session file does not exist and there is no readable launch record, `luvus_resume` SHALL return an error result and start nothing.
 
 #### Scenario: Session from before the launch record
 - **WHEN** `luvus_resume` is called with a session file that has no `<session>.launch.json`
 - **THEN** the child resumes as a plain pi session named `Resume`, and the tool result says that the role configuration was not restored
 
+#### Scenario: No session file and no record
+- **WHEN** `luvus_resume` is called with a session path that has neither a session file nor a launch record
+- **THEN** the tool returns an error that names the missing session file, and no pane is created
+
 ### Requirement: Resume of a Claude Code child
-When a Claude Code child run ends, the extension SHALL store the Claude Code session id in the child's launch record. `luvus_resume` on that session file SHALL start Claude Code with that session id resumed and `message` as the prompt. When the record has backend `claude` but no session id, `luvus_resume` MUST return an error result and start nothing.
+When a Claude Code child run ends, the extension SHALL store the Claude Code session id in the child's launch record. `luvus_resume` on that session file SHALL start Claude Code with that session id resumed and `message` as the prompt. When the record has backend `claude`, the extension SHALL NOT require the pi-style session file to exist. When the record has backend `claude` but no session id, `luvus_resume` MUST return an error result and start nothing.
 
 #### Scenario: Claude child resumed by session file
 - **WHEN** a Claude Code child has ended and `luvus_resume` is called with its session file and a message
 - **THEN** Claude Code starts in a new pane with the stored session id resumed and the message as the prompt
+
+#### Scenario: Claude record exists but no session file
+- **WHEN** `luvus_resume` is called with a session path whose launch record has backend `claude` and a session id, and no session file exists at that path
+- **THEN** Claude Code starts in a new pane with the stored session id resumed
 
 #### Scenario: Claude session id was never stored
 - **WHEN** `luvus_resume` is called for a Claude Code record that has no session id
@@ -83,7 +91,7 @@ When `luvus_resume` resumes a pi child with a `message`, the prompt the child re
 - **THEN** Worker's prompt names `parent` and `Reviewer` as reachable, then holds the message
 
 ### Requirement: Results name the session file for both backends
-The result message for a finished child SHALL include the child's session file and tell the parent to use `luvus_resume` with that file to continue the child. It SHALL NOT show a `pi --session` command. This SHALL apply to pi and Claude Code children.
+The result message and the ping message for a child SHALL include the child's session file and tell the parent to use `luvus_resume` with that file to continue the child. They SHALL NOT show a `pi --session` command. This SHALL apply to pi and Claude Code children. The handoff message keeps its instruction to start a new child and not to resume, and SHALL NOT include a `luvus_resume` line.
 
 #### Scenario: Pi child finishes
 - **WHEN** a pi child finishes with a result
@@ -94,7 +102,7 @@ The result message for a finished child SHALL include the child's session file a
 - **THEN** the parent's result message holds the child's session file
 
 ### Requirement: Same delivery for spawned and resumed children
-Spawned and resumed children SHALL be delivered to the parent the same way: one result, ping, handoff or error message that triggers a turn, with the child's name, task and agent in its details. For a resumed child, the summary SHALL come from the session entries written after the resume started.
+Spawned and resumed children SHALL be delivered to the parent the same way: one result, ping, handoff or error message that triggers a turn. Each of the four kinds SHALL carry the child's name, task and agent in its details. For a resumed child, the summary SHALL come from the session entries written after the resume started.
 
 #### Scenario: Resumed child pings
 - **WHEN** a resumed child calls `caller_ping`
@@ -103,6 +111,10 @@ Spawned and resumed children SHALL be delivered to the parent the same way: one 
 #### Scenario: Resumed child summary
 - **WHEN** a resumed child ends after writing a new assistant message
 - **THEN** the result summary is that new message, not an assistant message from before the resume
+
+#### Scenario: Resumed child hands off
+- **WHEN** a resumed child reaches the context alert and hands off
+- **THEN** the parent's handoff message carries the child's name, task and agent in its details
 
 ### Requirement: Session end and reload stop the supervision
 When the parent session shuts down, the extension SHALL stop watching every running child, stop its widget and status refresh, and stop its event stream. When the extension module loads again in the same process, it SHALL do the same for the previous load before it starts its own.

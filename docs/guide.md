@@ -52,7 +52,7 @@ luvus pane list --all-tabs
 
 To find the pane that holds a session, run `luvus agent get <pane>` and read its `session` field.
 
-The resumed pane runs plain `pi --session <id>`. pi loads the installed extension and re-binds the same session id to the new pane. The session status is `idle`.
+A session reopened this way starts without the role configuration of a `luvus_spawn` child. To resume a child and keep its role, use `luvus_resume` with the child session file (see [Resuming a subagent](#resuming-a-subagent)).
 
 The AGENTS history row shows only the project folder.
 
@@ -136,7 +136,7 @@ Subagents run concurrently. Each result arrives independently when its child fin
 ╰─────────────────────────────────────────────────────────╯
 ```
 
-Completion messages render with a colored background and are expandable with `Ctrl+O` to show the full summary and session file path.
+Completion messages render with a colored background and are expandable with `Ctrl+O` to show the full summary and session file path. The message names `luvus_resume` with the session file to continue the child.
 
 ### Decision model
 
@@ -257,6 +257,29 @@ This sends Escape to the child pane and cancels the active model turn. The sessi
 
 ---
 
+## Resuming a subagent
+
+`luvus_resume` starts a finished child in a new pane from its session file. It resumes pi children and Claude Code children. For a child that `luvus_spawn` started, the resume restores the role configuration from the spawn: the agent, the working directory, the model, the tool allowlist, the role prompt, the denied tools and the auto-exit value. The pane keeps the display name from the spawn.
+
+`luvus_spawn` writes a launch record beside the child session file, `<session>.launch.json`. The record holds the values that the spawn resolved. A resume reads that record and does not read the agent file again. The resumed child therefore keeps the role configuration from spawn time even if the agent file changes later.
+
+A Claude Code child has no pi session file. Its launch record stores the Claude Code session id when the run ends, and its result carries the child session path. `luvus_resume` starts Claude Code with `--resume <session id>` and `message` as the prompt. When the record has no stored session id, the tool returns an error and starts nothing.
+
+A session with no launch record, for example one that the skill launched, resumes as a plain pi session named `Resume`. Its tool result says that the role configuration was not restored. When the session file is missing as well, the tool returns an error and starts no pane.
+
+### Parameters
+
+| Parameter     | Type    | Description                                                                                                                                                                                                                                                                                       |
+| ------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sessionPath` | string  | Required. The child session file. For a Claude Code child, use the session path from its result.                                                                                                                                                                                                  |
+| `message`     | string  | The follow-up prompt. With no message, the child resumes without a prompt.                                                                                                                                                                                                                        |
+| `surface`     | string  | `"right"` (default) splits the caller pane side by side. `"down"` stacks it below. `"tab"` opens the resumed session in its own workspace tab. It overrides the `surface` key in `config.json` for this resume.                                                                                      |
+| `autoExit`    | boolean | Whether the resumed session auto-exits after its next response. When absent, the launch record's auto-exit and interactive values apply. `false` runs the resumed child interactively, so stall and recovery transitions do not wake the parent.                                                    |
+
+The `name` parameter is removed: the resumed pane uses the name from the launch record, or `Resume` when there is no record. `luvus_spawn` also no longer takes `resumeSessionId`; use `luvus_resume` with the session file.
+
+---
+
 ## Messaging other agents
 
 Use `luvus_message` to pass text to another agent in the same tree. Everyone keeps working:
@@ -290,12 +313,7 @@ The `caller_ping` tool lets a child request help from its parent. When the child
 
 `caller_ping` takes one parameter: `message` (required) holds the help text.
 
-`luvus_resume` takes these parameters:
-- `sessionPath` (required): Path to the child session `.jsonl` file
-- `name` (optional): Display name for the resumed pane (defaults to `Resume`)
-- `message` (optional): Follow-up prompt to send after resuming
-- `autoExit` (optional): Whether the resumed session auto-exits after its next response. Default `true` for autonomous follow-up work. Set `false` when resuming for an interactive handoff.
-- `surface` (optional): `"right"` (default) splits the caller pane side by side. `"down"` stacks it below. `"tab"` opens the resumed session in its own workspace tab. It overrides the `surface` key in `config.json` for this resume.
+`luvus_resume` takes the child `sessionPath` (required) and an optional `message`. It restores the role configuration from the launch record. Read [Resuming a subagent](#resuming-a-subagent) for all parameters.
 
 Interaction flow:
 1. The child calls `caller_ping({ message: "Not sure which schema to use" })`.
