@@ -4,8 +4,8 @@ All tests use fakes and fake `LUVUS_*` values. No task runs a live Luvus or star
 
 ## 1. Child-env module
 
-- [ ] 1.1 Add `pi-extension/luvus/child-env.ts` with `ChildEnv`, `encodeChildEnv`, `decodeChildEnv` and `isSubagentChild` as in design D1. Move `SPAWNING_TOOLS` and `resolveDenyTools` from `supervisor.ts` into it, and re-export `resolveDenyTools` from `supervisor.ts`. Verify: `pnpm run typecheck` passes and the existing `resolveDenyTools` test in `test/test.ts` passes unchanged.
-- [ ] 1.2 Add `test/child-env.test.ts`. Cover: a round trip of a full `ChildEnv` and of a minimal one; `encodeChildEnv` leaves out `PI_DENY_TOOLS` for an empty list and `PI_LUVUS_AUTO_EXIT` when it is false; `decodeChildEnv` trims and drops empty deny entries and treats `""` as not set; `isSubagentChild` is true only when `PI_LUVUS_SESSION` is set. Verify: `pnpm test` passes.
+- [x] 1.1 Add `pi-extension/luvus/child-env.ts` with `ChildEnv`, `encodeChildEnv`, `decodeChildEnv` and `isSubagentChild` as in design D1. Move `SPAWNING_TOOLS` and `resolveDenyTools` from `supervisor.ts` into it, and re-export `resolveDenyTools` from `supervisor.ts`. Verify: `pnpm run typecheck` passes and the existing `resolveDenyTools` test in `test/test.ts` passes unchanged.
+- [x] 1.2 Add `test/child-env.test.ts`. Cover: a round trip of a full `ChildEnv` and of a minimal one; `encodeChildEnv` leaves out `PI_DENY_TOOLS` for an empty list and `PI_LUVUS_AUTO_EXIT` when it is false; `decodeChildEnv` trims and drops empty deny entries and treats `""` as not set; `isSubagentChild` is true only when `PI_LUVUS_SESSION` is set. Verify: `pnpm test` passes.
 
 ## 2. Producers
 
