@@ -870,16 +870,10 @@ export default function subagentsExtension(pi: ExtensionAPI) {
           return muxUnavailableResult();
         }
 
-        if (!existsSync(params.sessionPath)) {
-          return {
-            content: [
-              { type: "text", text: `Error: session file not found: ${params.sessionPath}` },
-            ],
-            details: { error: "session not found" },
-          };
-        }
-
-        // The supervisor owns the resume launch and its watcher.
+        // The supervisor owns the resume launch and its watcher. It reads the
+        // launch record first, because a Claude Code record resumes without a
+        // pi-style session file; without a record, a missing session file is
+        // still an error result.
         return currentSupervisor().resume(params, ctx, {
           placement: resolveSurfacePlacement(params.surface),
         });

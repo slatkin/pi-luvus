@@ -51,6 +51,12 @@ import {
   __setLuvusExecForTests__,
 } from "../pi-extension/luvus/luvus.ts";
 import { __setUhpSpawnForTests__ } from "../pi-extension/luvus/uhp-events.ts";
+import { readLaunchSpec } from "../pi-extension/luvus/launch.ts";
+import {
+  LAUNCH_RECORD_VERSION,
+  getLaunchRecordFile,
+  writeLaunchRecord,
+} from "../pi-extension/luvus/launch-record.ts";
 import {
   advanceStatusState,
   capStatusLines,
@@ -2324,6 +2330,114 @@ describe("tool registration", () => {
     assert.equal(autoExitSchema.type, "boolean");
     assert.match(autoExitSchema.description, /launch record/);
     assert.match(autoExitSchema.description, /Set false for an interactive session/);
+  });
+
+  it("registers luvus_spawn without a resumeSessionId parameter", () => {
+    const { api, registeredTools } = createMockExtensionApi();
+    (subagentsModule as any).default(api);
+
+    const spawnTool = registeredTools.find((tool) => tool.name === "luvus_spawn");
+    assert.ok(spawnTool, "expected luvus_spawn tool to be registered");
+    assert.equal("resumeSessionId" in spawnTool.parameters.properties, false);
+  });
+});
+
+describe("luvus_resume tool", () => {
+  it("resumes a Claude Code child from its record when the session file is missing", async () => {
+    await withTempDir(async (dir) => {
+      const sessionPath = join(dir, "claude-child.jsonl");
+      writeLaunchRecord(getLaunchRecordFile(sessionPath), {
+        version: LAUNCH_RECORD_VERSION,
+        backend: "claude",
+        name: "ClaudeWorker",
+        model: "claude-model",
+        rolePrompt: "You are Claude.",
+        denyTools: [],
+        autoExit: true,
+        interactive: false,
+        claudeSessionId: "session-abc",
+      });
+
+      const runs: string[] = [];
+      __setLuvusExecForTests__((args) => {
+        if (args[0] === "pane" && args[1] === "run") {
+          runs.push(String(args[3]));
+          return '{"id":"1","result":{"revision":1,"type":"ok"}}';
+        }
+        if (args[0] === "pane" && args[1] === "read") {
+          return JSON.stringify({ id: "1", result: { revision: 1, text: "", type: "pane_read" } });
+        }
+        return '{"id":"1","result":{"pane":"24","revision":1,"tab":"1","type":"pane","workspace":"2"}}';
+      });
+      // No real UHP child: a silent stream, and an empty agent snapshot.
+      __setUhpSpawnForTests__((args) => {
+        if (args[0] === "agent") {
+          return {
+            stdout: (async function* () {
+              yield Buffer.from(`${JSON.stringify({ result: { agents: [] } })}\n`);
+            })(),
+            kill() {},
+          };
+        }
+        return { stdout: (async function* () {})(), kill() {} };
+      });
+
+      const saved = new Map(
+        [
+          "LUVUS_ENV",
+          "LUVUS_BIN_PATH",
+          "LUVUS_PANE_ID",
+          "PI_LUVUS_NAME",
+          "PI_LUVUS_SHELL_READY_DELAY_MS",
+        ].map((key) => [key, process.env[key]]),
+      );
+      process.env.LUVUS_ENV = "1";
+      process.env.LUVUS_BIN_PATH = "in-process";
+      process.env.LUVUS_PANE_ID = "21";
+      process.env.PI_LUVUS_NAME = "parent";
+      process.env.PI_LUVUS_SHELL_READY_DELAY_MS = "0";
+
+      try {
+        const { api, registeredTools } = createMockExtensionApi();
+        (subagentsModule as any).default(api);
+        const resumeTool = registeredTools.find((tool) => tool.name === "luvus_resume");
+        assert.ok(resumeTool, "expected luvus_resume to be registered");
+
+        const result = await resumeTool.execute(
+          "t1",
+          { sessionPath, message: "Continue the work" },
+          undefined,
+          undefined,
+          {
+            cwd: dir,
+            sessionManager: {
+              getSessionFile: () => join(dir, "parent.jsonl"),
+              getSessionId: () => "sess-001",
+              getSessionDir: () => join(dir, "sessions"),
+            },
+          },
+        );
+
+        assert.equal(result.details.status, "started");
+        assert.equal(result.details.name, "ClaudeWorker");
+        // A Claude Code record resumes without its pi-style session file.
+        assert.equal(existsSync(sessionPath), false);
+
+        assert.equal(runs.length, 1, "expected one pane run");
+        const specPath = /"([^"]+\.json)"/.exec(runs[0])?.[1];
+        assert.ok(specPath, `expected a launch spec path in ${runs[0]}`);
+        const spec = readLaunchSpec(specPath);
+        assert.equal(spec.command, "claude");
+        assert.deepEqual(spec.args.slice(-3), ["--resume", "session-abc", "Continue the work"]);
+      } finally {
+        subagentsModule.__test__.getCurrentSupervisor().shutdown();
+        __setLuvusExecForTests__(null);
+        __setUhpSpawnForTests__(null);
+        for (const [key, value] of saved) {
+          restoreEnvVar(key, value);
+        }
+      }
+    });
   });
 });
 

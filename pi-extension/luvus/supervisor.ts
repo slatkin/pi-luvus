@@ -121,12 +121,6 @@ export const SubagentParams = Type.Object({
         "true: the user drives the subagent, and stall events do not wake you. Default: the agent `interactive` value, else the inverse of `auto-exit`.",
     }),
   ),
-  resumeSessionId: Type.Optional(
-    Type.String({
-      description:
-        "Claude Code subagents only: the session ID to continue (from an earlier result).",
-    }),
-  ),
   surface: Type.Optional(
     Type.Union(
       [Type.Literal("right"), Type.Literal("down"), Type.Literal("tab"), Type.Literal("pane")],
@@ -809,19 +803,27 @@ export function observeRunningSubagent(running: RunningSubagent, observedAt = Da
   );
 }
 
-const CLAUDE_SESSIONS_DIR = join(homedir(), ".pi", "agent", "sessions", "claude-code");
+/** Resolved per call so a test can point HOME at a temporary directory. */
+function getClaudeSessionsDir(): string {
+  return join(homedir(), ".pi", "agent", "sessions", "claude-code");
+}
 
+/**
+ * Copy the Claude Code transcript beside the other Claude sessions and return
+ * its session id: the transcript file name without the `.jsonl` extension,
+ * which is what `claude --resume` takes.
+ */
 function copyClaudeSession(sentinelFile: string): string | null {
   try {
     const transcriptFile = sentinelFile + ".transcript";
     if (!existsSync(transcriptFile)) return null;
     const transcriptPath = readFileSync(transcriptFile, "utf-8").trim();
     if (!transcriptPath || !existsSync(transcriptPath)) return null;
-    mkdirSync(CLAUDE_SESSIONS_DIR, { recursive: true });
+    const sessionsDir = getClaudeSessionsDir();
+    mkdirSync(sessionsDir, { recursive: true });
     const filename = basename(transcriptPath);
-    const dest = join(CLAUDE_SESSIONS_DIR, filename);
-    copyFileSync(transcriptPath, dest);
-    return filename;
+    copyFileSync(transcriptPath, join(sessionsDir, filename));
+    return filename.replace(/\.jsonl$/, "");
   } catch {
     return null;
   }
@@ -933,8 +935,6 @@ export interface BackendLaunchRequest {
   /** Names the child can reach with `luvus_message` at spawn time. */
   siblingNames: string[];
   parentRosterFile?: string;
-  /** Claude Code session id from the spawn parameters (removed in a later row). */
-  resumeSessionId?: string;
   /** Set when the run continues an existing session (design D5). */
   resume?: {
     /** The follow-up message; the session keeps the spawn task and role. */
@@ -1175,13 +1175,17 @@ function buildClaudeLaunch(request: BackendLaunchRequest): BackendLaunch {
     claudeArgs.push("--append-system-prompt", record.rolePrompt);
   }
 
-  if (request.resumeSessionId) {
-    claudeArgs.push("--resume", request.resumeSessionId);
+  if (request.resume) {
+    // `claude --resume` takes the stored session id, then the follow-up prompt.
+    if (!record.claudeSessionId) {
+      throw new Error("A Claude Code resume needs a stored session id");
+    }
+    claudeArgs.push("--resume", record.claudeSessionId);
+    if (request.resume.message) claudeArgs.push(request.resume.message);
+  } else {
+    // A spawn passes the task as the prompt.
+    claudeArgs.push(request.task);
   }
-
-  // Always pass the task as the prompt — even for resumed sessions,
-  // the caller's task is the follow-up instruction.
-  claudeArgs.push(request.task);
 
   return {
     spec: {
@@ -1192,7 +1196,7 @@ function buildClaudeLaunch(request: BackendLaunchRequest): BackendLaunch {
       command: "claude",
       args: claudeArgs,
       sessionFile: run.sessionFile,
-      title: buildPaneTitle(record.name, request.task),
+      title: buildPaneTitle(record.name, request.resume?.message ?? request.task),
     },
     running: {
       id: run.id,
@@ -1266,7 +1270,9 @@ function extractClaudeResult(
         : "Claude Code exited without output";
   }
 
-  return { summary };
+  // The child has no pi-style session file; the record sits beside the path a
+  // later `luvus_resume` uses, so that path is the session reference.
+  return { summary, sessionFile: running.sessionFile };
 }
 
 function copyClaudeTranscript(running: RunningSubagent): Pick<SubagentResult, "claudeSessionId"> {
@@ -1282,7 +1288,14 @@ function copyClaudeTranscript(running: RunningSubagent): Pick<SubagentResult, "c
   } catch {
     // Best effort: the transcript may already be gone.
   }
-  return sessionId ? { claudeSessionId: sessionId } : {};
+  if (!sessionId) return {};
+
+  // Store the id beside the role values, keeping every other record field so a
+  // later `luvus_resume` finds the same role configuration.
+  const recordFile = getLaunchRecordFile(running.sessionFile);
+  const record = readLaunchRecord(recordFile);
+  if (record) writeLaunchRecord(recordFile, { ...record, claudeSessionId: sessionId });
+  return { claudeSessionId: sessionId };
 }
 
 function refuseClaudeInterrupt(running: RunningSubagent): BackendInterruptRefusal {
@@ -1661,7 +1674,9 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
       await new Promise<void>((resolve) => setTimeout(resolve, getShellReadyDelayMs()));
     }
 
-    if (launchBehavior.seededSessionMode) {
+    // A Claude Code child has no pi-style session file; seeding one would make
+    // a resume path that no backend reads. The record still sits beside it.
+    if (launchBehavior.seededSessionMode && backend.name === "pi") {
       seedSubagentSessionFile({
         mode: launchBehavior.seededSessionMode,
         parentSessionFile: sessionFile,
@@ -1682,7 +1697,6 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
       artifactDir,
       siblingNames: Array.from(runningSubagents.values(), (agent) => agent.name),
       parentRosterFile: rosterContext?.file,
-      resumeSessionId: params.resumeSessionId,
       run: {
         id,
         surface,
@@ -1948,16 +1962,35 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
       mkdirSync(dirname(activityFile), { recursive: true });
       ensureRosterContext(ctx);
 
-      // A pi record restores the role the spawn resolved. Without one, or with
-      // a Claude Code record (a later row), the resume stays plain pi.
+      // Read the record before the session file: a Claude Code record resumes
+      // without a pi-style session file, and the record sits beside that path.
       const storedRecord = readLaunchRecord(getLaunchRecordFile(params.sessionPath));
-      const record = storedRecord?.backend === "pi" ? storedRecord : null;
-      const autoExit = params.autoExit ?? record?.autoExit ?? true;
+      if (!storedRecord && !existsSync(params.sessionPath)) {
+        return {
+          content: [{ type: "text", text: `Error: session file not found: ${params.sessionPath}` }],
+          details: { error: "session not found" },
+        };
+      }
+      if (storedRecord?.backend === "claude" && !storedRecord.claudeSessionId) {
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                `Error: the launch record for ${params.sessionPath} has no Claude Code ` +
+                "session id. The run did not store its transcript; start a new subagent instead.",
+            },
+          ],
+          details: { error: "claude session id missing", sessionPath: params.sessionPath },
+        };
+      }
+
+      const autoExit = params.autoExit ?? storedRecord?.autoExit ?? true;
       // An explicit autoExit makes the run interactive exactly when it is false.
-      let interactive = record?.interactive ?? !autoExit;
+      let interactive = storedRecord?.interactive ?? !autoExit;
       if (params.autoExit !== undefined) interactive = !params.autoExit;
-      const effectiveRecord: LaunchRecord = record
-        ? { ...record, autoExit, interactive }
+      const effectiveRecord: LaunchRecord = storedRecord
+        ? { ...storedRecord, autoExit, interactive }
         : {
             version: LAUNCH_RECORD_VERSION,
             backend: "pi",
@@ -1967,12 +2000,15 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
             interactive,
           };
       const name = effectiveRecord.name;
+      const backend = BACKENDS[effectiveRecord.backend];
 
       // Record the entry count before the resume so its delivery only reads the
-      // entries the resumed run writes.
-      const entryCountBefore = existsSync(params.sessionPath)
-        ? getNewEntries(params.sessionPath, 0).length
-        : 0;
+      // entries the resumed run writes. A Claude Code run has no pi-style
+      // session file, so its summary comes from the sentinel and the screen.
+      const entryCountBefore =
+        effectiveRecord.backend === "claude" || !existsSync(params.sessionPath)
+          ? 0
+          : getNewEntries(params.sessionPath, 0).length;
 
       // Compute the launch-spec path and its pane line before any pane
       // exists, so an unsafe path fails without leaving an empty pane behind.
@@ -1989,7 +2025,7 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
       // Mirror the spawn's cwd lookup: only a record that names a cwd can have
       // its own `.pi/agent` configuration.
       const localAgentDir = effectiveRecord.cwd ? join(effectiveRecord.cwd, ".pi", "agent") : null;
-      const { spec, running } = BACKENDS.pi.buildLaunch({
+      const { spec, running } = backend.buildLaunch({
         record: effectiveRecord,
         task: params.message ?? "resumed session",
         localAgentDir,
@@ -2019,7 +2055,7 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
         content: [
           {
             type: "text",
-            text: record
+            text: storedRecord
               ? `Session "${name}" resumed.`
               : `Session "${name}" resumed. No launch record was found, so the role configuration was not restored.`,
           },

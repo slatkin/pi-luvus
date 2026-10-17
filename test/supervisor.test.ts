@@ -741,6 +741,66 @@ describe("supervisor resume", () => {
       assert.equal(h.supervisor.running()[0].interactive, true);
     });
   });
+
+  it("keeps the session-file error when neither a record nor a session file exists", async () => {
+    await withHarness(async (h, env) => {
+      const sessionPath = join(env.dir, "absent.jsonl");
+
+      const result = await h.supervisor.resume({ sessionPath, message: "Continue" }, env.ctx);
+
+      assert.equal(result.content[0].text, `Error: session file not found: ${sessionPath}`);
+      assert.deepEqual(result.details, { error: "session not found" });
+      assert.deepEqual(h.surfaces, []);
+      assert.deepEqual(h.runs, []);
+      assert.deepEqual(h.supervisor.running(), []);
+    });
+  });
+
+  it("resumes a Claude Code child from its record without a session file", async () => {
+    await withHarness(async (h, env) => {
+      const sessionPath = join(env.dir, "claude-child.jsonl");
+      writeRecord(sessionPath, { backend: "claude", claudeSessionId: "session-abc" });
+
+      const result = await h.supervisor.resume(
+        { sessionPath, message: "Continue the work" },
+        env.ctx,
+      );
+
+      assert.equal(result.details.status, "started");
+      assert.equal(result.details.name, "Worker");
+      assert.deepEqual(h.surfaces, [{ name: "Worker", placement: undefined }]);
+      // The pi-style session file is not required and never created.
+      assert.equal(existsSync(sessionPath), false);
+
+      const spec = readLaunchSpec(result.details.launchScriptFile as string);
+      assert.equal(spec.command, "claude");
+      assert.deepEqual(spec.args.slice(-3), ["--resume", "session-abc", "Continue the work"]);
+      assert.ok(spec.env.PI_CLAUDE_SENTINEL?.startsWith(tmpdir()));
+
+      const [running] = h.supervisor.running();
+      assert.equal(running.cli, "claude");
+      assert.equal(running.entryCountBefore, 0);
+      assert.equal(running.sentinelFile, spec.env.PI_CLAUDE_SENTINEL);
+    });
+  });
+
+  it("returns an error and creates no surface when a Claude record has no session id", async () => {
+    await withHarness(async (h, env) => {
+      const sessionPath = join(env.dir, "claude-child.jsonl");
+      writeRecord(sessionPath, { backend: "claude" });
+
+      const result = await h.supervisor.resume({ sessionPath, message: "Continue" }, env.ctx);
+
+      assert.match(result.content[0].text, /has no Claude Code session id/);
+      assert.deepEqual(result.details, {
+        error: "claude session id missing",
+        sessionPath,
+      });
+      assert.deepEqual(h.surfaces, []);
+      assert.deepEqual(h.runs, []);
+      assert.deepEqual(h.supervisor.running(), []);
+    });
+  });
 });
 
 describe("supervisor watcher", () => {
@@ -795,6 +855,62 @@ describe("supervisor watcher", () => {
       },
       { closeSurfaceThrows: true },
     );
+  });
+
+  it("stores the Claude session id in the record and returns the session file", async () => {
+    const previousHome = process.env.HOME;
+    await withHarness(async (h, env) => {
+      process.env.HOME = join(env.dir, "home");
+      try {
+        writeAgentFile(
+          join(env.dir, "agent", "agents"),
+          "claude-role",
+          "cli: claude",
+          "You are Claude.",
+        );
+        const running = await h.supervisor.spawn(
+          { name: "Scout", task: "survey", agent: "claude-role" },
+          env.ctx,
+        );
+
+        // A Claude Code transcript named after its session id, as the hook
+        // records it. The copied file lands under the fake HOME.
+        const sessionId = "8a1b2c3d-0000-4000-8000-123456789abc";
+        const transcriptPath = join(env.dir, "claude", `${sessionId}.jsonl`);
+        mkdirSync(dirname(transcriptPath), { recursive: true });
+        writeFileSync(transcriptPath, '{"type":"user","message":{"content":"survey"}}\n');
+        writeFileSync(`${running.sentinelFile as string}.transcript`, `${transcriptPath}\n`);
+        writeFileSync(running.sentinelFile as string, "All checks pass.\n");
+
+        h.polls.finish({ reason: "done", exitCode: 0 });
+        await waitFor(() => h.sent.length === 1, "the result steer");
+
+        // The record keeps the id without the transcript extension.
+        const record = readLaunchRecord(getLaunchRecordFile(running.sessionFile));
+        assert.ok(record);
+        assert.equal(record.claudeSessionId, sessionId);
+        assert.equal(record.backend, "claude");
+        assert.equal(record.agent, "claude-role");
+        assert.equal(record.name, "Scout");
+
+        assert.equal(
+          existsSync(
+            join(env.dir, "home", ".pi", "agent", "sessions", "claude-code", `${sessionId}.jsonl`),
+          ),
+          true,
+        );
+
+        // The result names the record-adjacent session path for luvus_resume.
+        const { message } = h.sent[0];
+        assert.equal(message.details?.sessionFile, running.sessionFile);
+        assert.equal(message.details?.claudeSessionId, sessionId);
+        assert.ok(message.content.includes(`Session: ${running.sessionFile}`));
+        assert.ok(message.content.includes(`Resume: luvus_resume ${running.sessionFile}`));
+      } finally {
+        if (previousHome === undefined) delete process.env.HOME;
+        else process.env.HOME = previousHome;
+      }
+    });
   });
 
   it("sends one luvus_handoff steer for a handoff result", async () => {
