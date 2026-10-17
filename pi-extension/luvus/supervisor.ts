@@ -72,7 +72,7 @@ import {
   type ActivityReadResult,
   type SubagentActivityState,
 } from "./activity.ts";
-import { resolveDenyTools } from "./child-env.ts";
+import { encodeChildEnv, resolveDenyTools } from "./child-env.ts";
 import { capSummary, SCREEN_SUMMARY_CHARS } from "./report-cap.ts";
 import {
   IDLE_NUDGE_TEXT,
@@ -462,17 +462,18 @@ export function buildSpawnEnvParts(params: {
   denySet: Set<string>;
   parentRosterFile?: string;
 }): Record<string, string> {
-  const env: Record<string, string> = {};
+  const env = encodeChildEnv({
+    name: params.name,
+    agent: params.agent,
+    autoExit: params.autoExit === true,
+    sessionFile: params.subagentSessionFile,
+    id: params.id,
+    activityFile: params.activityFile,
+    surface: params.surface,
+    denyTools: [...params.denySet],
+    parentRosterFile: params.parentRosterFile,
+  });
   if (params.codingAgentDir) env.PI_CODING_AGENT_DIR = params.codingAgentDir;
-  if (params.denySet.size > 0) env.PI_DENY_TOOLS = [...params.denySet].join(",");
-  env.PI_LUVUS_NAME = params.name;
-  if (params.agent) env.PI_LUVUS_AGENT = params.agent;
-  if (params.autoExit) env.PI_LUVUS_AUTO_EXIT = "1";
-  env.PI_LUVUS_SESSION = params.subagentSessionFile;
-  env.PI_LUVUS_ID = params.id;
-  env.PI_LUVUS_ACTIVITY_FILE = params.activityFile;
-  env.PI_LUVUS_SURFACE = params.surface;
-  if (params.parentRosterFile) env.PI_LUVUS_PARENT_ROSTER = params.parentRosterFile;
   return env;
 }
 

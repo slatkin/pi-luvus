@@ -1343,6 +1343,8 @@ describe("subagent discovery", () => {
         "model: anthropic/test-crlf",
         "tools: read,bash",
         "auto-exit: true",
+        "spawning: false",
+        "deny-tools: a, b",
         "---",
         "",
         "Body line one.",
@@ -1358,6 +1360,8 @@ describe("subagent discovery", () => {
       assert.equal(crlf.model, "anthropic/test-crlf");
       assert.equal(crlf.tools, "read,bash");
       assert.equal(crlf.autoExit, true);
+      assert.equal(crlf.spawning, false);
+      assert.equal(crlf.denyTools, "a, b");
       assert.equal(crlf.body, "Body line one.\nBody line two.");
     });
   });
