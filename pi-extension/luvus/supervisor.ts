@@ -61,10 +61,12 @@ import {
   capStatusLines,
   classifyStatus,
   createStatusState,
+  displayActivityLabel,
   forceStatusAfterInterrupt,
   formatStatusAggregate,
   formatTransitionLine,
   observeStatus,
+  toStatusObservation,
 } from "./status.ts";
 import {
   getSubagentActivityFile,
@@ -687,7 +689,7 @@ export function formatWidgetRightLabel(snapshot: StatusSnapshot): string {
   if (snapshot.kind === "starting") return " starting… ";
   if (snapshot.kind === "running") return ` running ${snapshot.elapsedText} `;
   if (snapshot.kind === "active") {
-    const label = snapshot.activityLabel ?? snapshot.activeScope;
+    const label = displayActivityLabel(snapshot);
     const duration = snapshot.activeDurationText ? ` ${snapshot.activeDurationText}` : "";
     return label ? ` active · ${label}${duration} ` : " active ";
   }
@@ -730,14 +732,6 @@ export function resolveResultPresentation(
     : `Sub-agent "${name}" completed (${formatElapsed(result.elapsed)}).\n\n${summary}${sessionRef}`;
 }
 
-export function activityLabel(activity: SubagentActivityState): string | undefined {
-  if (activity.phase !== "active") return undefined;
-  if (activity.activeScope === "tool") return activity.toolName ?? "tool";
-  if (activity.activeScope === "provider") return "provider";
-  if (activity.activeScope === "streaming") return "streaming";
-  return activity.activeScope;
-}
-
 export function observeRunningSubagent(running: RunningSubagent, observedAt = Date.now()) {
   // A backend without an activity snapshot has nothing to observe.
   if (!backendFor(running).observes) return;
@@ -750,35 +744,9 @@ export function observeRunningSubagent(running: RunningSubagent, observedAt = Da
   running.activityRead =
     read.ok === true ? { ok: true } : { ok: false, reason: read.reason, error: read.error };
 
-  if (read.ok === true) {
-    running.activity = read.activity;
-    running.statusState = observeStatus(
-      running.statusState,
-      {
-        snapshot: "present",
-        updatedAt: read.activity.updatedAt,
-        sequence: read.activity.sequence,
-        phase: read.activity.phase,
-        active: read.activity.phase === "active",
-        activeScope: read.activity.activeScope,
-        activeSince: read.activity.activeSince,
-        waitingSince: read.activity.waitingSince,
-        latestEvent: read.activity.latestEvent,
-        activityLabel: activityLabel(read.activity),
-      },
-      observedAt,
-    );
-    return;
-  }
+  if (read.ok === true) running.activity = read.activity;
 
-  running.statusState = observeStatus(
-    running.statusState,
-    {
-      snapshot: read.reason,
-      snapshotError: read.error,
-    },
-    observedAt,
-  );
+  running.statusState = observeStatus(running.statusState, toStatusObservation(read), observedAt);
 }
 
 /** Resolved per call so a test can point HOME at a temporary directory. */

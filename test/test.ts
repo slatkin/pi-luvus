@@ -59,6 +59,7 @@ import {
 } from "../pi-extension/luvus/launch-record.ts";
 import {
   advanceStatusState,
+  buildActivityLabel,
   capStatusLines,
   classifyStatus,
   createStatusState,
@@ -67,6 +68,7 @@ import {
   formatStatusLine,
   formatTransitionLine,
   observeStatus,
+  toStatusObservation,
   loadStatusConfig,
   parseStatusConfig,
   parseSurfaceConfig,
@@ -1079,6 +1081,103 @@ describe("status.ts", () => {
     assert.match(aggregate, /^Subagent status:/);
     assert.match(aggregate, /\+2 more running\./);
     assert.doesNotMatch(aggregate, /\/tmp|\.jsonl/);
+  });
+
+  it("maps every activity field and the tool label into a present observation", () => {
+    const observation = toStatusObservation({
+      ok: true,
+      activity: {
+        version: 1,
+        runningChildId: "child-1",
+        createdAt: 1_000,
+        updatedAt: 2_000,
+        sequence: 7,
+        latestEvent: "tool_execution_start",
+        phase: "active",
+        agentActive: true,
+        turnActive: true,
+        providerActive: false,
+        toolActive: true,
+        activeScope: "tool",
+        activeSince: 2_000,
+        waitingSince: 1_500,
+        toolName: "bash",
+      },
+    });
+
+    assert.deepEqual(observation, {
+      snapshot: "present",
+      updatedAt: 2_000,
+      sequence: 7,
+      phase: "active",
+      active: true,
+      activeScope: "tool",
+      activeSince: 2_000,
+      waitingSince: 1_500,
+      latestEvent: "tool_execution_start",
+      activityLabel: "bash",
+    });
+    assert.equal(
+      buildActivityLabel({
+        version: 1,
+        runningChildId: "child-1",
+        createdAt: 1_000,
+        updatedAt: 2_000,
+        sequence: 7,
+        latestEvent: "tool_execution_start",
+        phase: "active",
+        agentActive: true,
+        turnActive: true,
+        providerActive: false,
+        toolActive: true,
+        activeScope: "tool",
+      }),
+      "tool",
+    );
+  });
+
+  it("gives a non-active phase no activity label", () => {
+    const observation = toStatusObservation({
+      ok: true,
+      activity: {
+        version: 1,
+        runningChildId: "child-1",
+        createdAt: 1_000,
+        updatedAt: 2_000,
+        sequence: 7,
+        latestEvent: "agent_end",
+        phase: "waiting",
+        agentActive: false,
+        turnActive: false,
+        providerActive: false,
+        toolActive: false,
+        waitingSince: 2_000,
+      },
+    });
+
+    assert.equal(observation.snapshot, "present");
+    assert.equal(observation.snapshot === "present" && observation.activityLabel, undefined);
+  });
+
+  it("maps each failed activity read to its snapshot problem", () => {
+    const cases = [
+      {
+        read: { ok: false as const, reason: "missing" as const },
+        expected: { snapshot: "missing", snapshotError: undefined },
+      },
+      {
+        read: { ok: false as const, reason: "invalid" as const, error: "bad json" },
+        expected: { snapshot: "invalid", snapshotError: "bad json" },
+      },
+      {
+        read: { ok: false as const, reason: "wrong-id" as const },
+        expected: { snapshot: "wrong-id", snapshotError: undefined },
+      },
+    ];
+
+    for (const { read, expected } of cases) {
+      assert.deepEqual(toStatusObservation(read), expected);
+    }
   });
 });
 
