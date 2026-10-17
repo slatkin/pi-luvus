@@ -153,6 +153,7 @@ interface SupervisorOptions {
 function makeSupervisor(env: TestEnv, options: SupervisorOptions = {}) {
   const sent: Array<{ message: SteerMessage; options: SendOptions | undefined }> = [];
   const runs: Array<{ surface: string; line: string }> = [];
+  const surfaces: Array<{ name: string; placement: unknown }> = [];
   const closed: string[] = [];
   const polls = createPollQueue(options.pollForExit);
   let nextPane = 24;
@@ -166,7 +167,10 @@ function makeSupervisor(env: TestEnv, options: SupervisorOptions = {}) {
           } as unknown as ReturnType<SupervisorDeps["ui"]>)
         : null,
     luvus: {
-      createSurface: () => String(nextPane++),
+      createSurface: (name, placement) => {
+        surfaces.push({ name, placement });
+        return String(nextPane++);
+      },
       runInPane: (surface, line) => {
         options.onRunInPane?.(line);
         runs.push({ surface, line });
@@ -192,6 +196,7 @@ function makeSupervisor(env: TestEnv, options: SupervisorOptions = {}) {
     supervisor,
     sent,
     runs,
+    surfaces,
     closed,
     polls,
     newSupervisor: (next: SupervisorOptions = {}) => makeSupervisor(env, next),
@@ -528,6 +533,160 @@ describe("supervisor launch", () => {
 function readFileNames(dir: string): string[] {
   return existsSync(dir) ? readdirSync(dir) : [];
 }
+
+function writePiSession(file: string): void {
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(
+    file,
+    [SESSION_HEADER, MODEL_CHANGE, USER_MSG, ASSISTANT_MSG]
+      .map((entry) => JSON.stringify(entry))
+      .join("\n") + "\n",
+  );
+}
+
+describe("supervisor resume", () => {
+  function writeRecord(sessionPath: string, overrides: Partial<LaunchRecord> = {}): LaunchRecord {
+    const record: LaunchRecord = {
+      version: LAUNCH_RECORD_VERSION,
+      backend: "pi",
+      name: "Worker",
+      agent: "worker",
+      model: "test-model",
+      tools: "read,bash",
+      rolePrompt: "You are a worker.",
+      systemPromptMode: "append",
+      denyTools: ["luvus_spawn"],
+      autoExit: true,
+      interactive: false,
+      ...overrides,
+    };
+    writeLaunchRecord(getLaunchRecordFile(sessionPath), record);
+    return record;
+  }
+
+  it("restores the role configuration from the launch record", async () => {
+    await withHarness(async (h, env) => {
+      const repoDir = join(env.dir, "repo");
+      mkdirSync(repoDir, { recursive: true });
+      const sessionPath = join(env.dir, "child.jsonl");
+      writePiSession(sessionPath);
+      writeRecord(sessionPath, { cwd: repoDir });
+
+      const result = await h.supervisor.resume(
+        { sessionPath, message: "Continue the work" },
+        env.ctx,
+      );
+
+      // The pane is named after the record, not a resume default.
+      assert.deepEqual(h.surfaces, [{ name: "Worker", placement: undefined }]);
+      assert.equal(h.runs.length, 1);
+      assert.equal(result.content[0].text, 'Session "Worker" resumed.');
+      assert.equal(result.details.name, "Worker");
+
+      const spec = readLaunchSpec(result.details.launchScriptFile as string);
+      assert.equal(spec.command, "pi");
+      assert.equal(spec.name, "Worker");
+      assert.equal(spec.cwd, repoDir);
+      assert.equal(spec.sessionFile, sessionPath);
+      assert.equal(spec.title, "Worker — Continue the work");
+
+      // Denied tools and the agent come from the record.
+      assert.equal(spec.env.PI_DENY_TOOLS, "luvus_spawn");
+      assert.equal(spec.env.PI_LUVUS_AGENT, "worker");
+      assert.equal(spec.env.PI_LUVUS_NAME, "Worker");
+      assert.equal(spec.env.PI_LUVUS_SESSION, sessionPath);
+      assert.equal(spec.env.PI_LUVUS_AUTO_EXIT, "1");
+      assert.equal(flagValue(spec.args, "--model"), "test-model");
+      assert.equal(
+        flagValue(spec.args, "--tools"),
+        "read,bash,caller_ping,luvus_done,luvus_message",
+      );
+
+      // The role prompt goes back in as a file, as the record's mode selects.
+      const syspromptPath = flagValue(spec.args, "--append-system-prompt");
+      assert.ok(syspromptPath);
+      assert.equal(readFileSync(syspromptPath, "utf8"), "You are a worker.");
+      assert.equal(flagValue(spec.args, "--system-prompt"), undefined);
+
+      // The prompt file holds the messaging hint and then the message.
+      const promptArg = spec.args.at(-1) ?? "";
+      assert.match(promptArg, /^@.*luvus-resume.*\.md$/);
+      const prompt = readFileSync(promptArg.slice(1), "utf8");
+      assert.match(prompt, /You can message `parent` with luvus_message/);
+      assert.ok(prompt.indexOf("You can message") < prompt.indexOf("Continue the work"));
+
+      assert.equal(h.supervisor.running()[0].interactive, false);
+    });
+  });
+
+  it("passes the role prompt with --system-prompt when the record replaces it", async () => {
+    await withHarness(async (h, env) => {
+      const sessionPath = join(env.dir, "child.jsonl");
+      writePiSession(sessionPath);
+      writeRecord(sessionPath, { systemPromptMode: "replace", cwd: undefined });
+
+      const result = await h.supervisor.resume({ sessionPath }, env.ctx);
+      const spec = readLaunchSpec(result.details.launchScriptFile as string);
+
+      const syspromptPath = flagValue(spec.args, "--system-prompt");
+      assert.ok(syspromptPath);
+      assert.equal(readFileSync(syspromptPath, "utf8"), "You are a worker.");
+      assert.equal(flagValue(spec.args, "--append-system-prompt"), undefined);
+      // No message given: no prompt is sent.
+      assert.equal(
+        spec.args.some((arg) => arg.startsWith("@")),
+        false,
+      );
+    });
+  });
+
+  it("uses the record's auto-exit and interactive values when autoExit is absent", async () => {
+    await withHarness(async (h, env) => {
+      const sessionPath = join(env.dir, "child.jsonl");
+      writePiSession(sessionPath);
+      writeRecord(sessionPath, { autoExit: false, interactive: true });
+
+      const result = await h.supervisor.resume({ sessionPath }, env.ctx);
+      const spec = readLaunchSpec(result.details.launchScriptFile as string);
+
+      assert.equal("PI_LUVUS_AUTO_EXIT" in spec.env, false);
+      assert.equal(h.supervisor.running()[0].interactive, true);
+    });
+  });
+
+  it("makes the run interactive when autoExit is false", async () => {
+    await withHarness(async (h, env) => {
+      const sessionPath = join(env.dir, "child.jsonl");
+      writePiSession(sessionPath);
+      writeRecord(sessionPath, { autoExit: true, interactive: false });
+
+      const result = await h.supervisor.resume({ sessionPath, autoExit: false }, env.ctx);
+      const spec = readLaunchSpec(result.details.launchScriptFile as string);
+
+      assert.equal("PI_LUVUS_AUTO_EXIT" in spec.env, false);
+      assert.equal(h.supervisor.running()[0].interactive, true);
+    });
+  });
+
+  it("names a running sibling before the resume message", async () => {
+    await withHarness(async (h, env) => {
+      const sessionPath = join(env.dir, "child.jsonl");
+      writePiSession(sessionPath);
+      writeRecord(sessionPath, { cwd: undefined });
+      await h.supervisor.spawn({ name: "Reviewer", task: "review the work" }, env.ctx);
+
+      const result = await h.supervisor.resume(
+        { sessionPath, message: "Address the review findings" },
+        env.ctx,
+      );
+      const spec = readLaunchSpec(result.details.launchScriptFile as string);
+      const prompt = readFileSync((spec.args.at(-1) ?? "").slice(1), "utf8");
+
+      assert.match(prompt, /You can message `parent`, `Reviewer` with luvus_message/);
+      assert.ok(prompt.indexOf("`Reviewer`") < prompt.indexOf("Address the review findings"));
+    });
+  });
+});
 
 describe("supervisor watcher", () => {
   it("keeps the session summary when the pane is already gone (pi)", async () => {

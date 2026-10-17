@@ -2277,19 +2277,6 @@ describe("tool registration", () => {
     }
   });
 
-  it("defaults resumed subagents to auto-exit and non-interactive tracking", () => {
-    const testApi = (subagentsModule as any).__test__;
-
-    assert.deepEqual(testApi.resolveResumeLaunchBehavior({}), {
-      autoExit: true,
-      interactive: false,
-    });
-    assert.deepEqual(testApi.resolveResumeLaunchBehavior({ autoExit: false }), {
-      autoExit: false,
-      interactive: true,
-    });
-  });
-
   it("expands spawning false to deny subagent interruption", () => {
     const testApi = (subagentsModule as any).__test__;
     const denied = testApi.resolveDenyTools({ spawning: false });
@@ -2320,16 +2307,23 @@ describe("tool registration", () => {
     assert.match(output, /\(unnamed\)/);
   });
 
-  it("registers luvus_resume with an autoExit override", () => {
+  it("registers luvus_resume with the record-based resume parameters", () => {
     const { api, registeredTools } = createMockExtensionApi();
     (subagentsModule as any).default(api);
 
     const resumeTool = registeredTools.find((tool) => tool.name === "luvus_resume");
     assert.ok(resumeTool, "expected luvus_resume tool to be registered");
 
+    assert.deepEqual(Object.keys(resumeTool.parameters.properties).sort(), [
+      "autoExit",
+      "message",
+      "sessionPath",
+      "surface",
+    ]);
     const autoExitSchema = resumeTool.parameters.properties.autoExit;
     assert.equal(autoExitSchema.type, "boolean");
-    assert.match(autoExitSchema.description, /Defaults to true/);
+    assert.match(autoExitSchema.description, /launch record/);
+    assert.match(autoExitSchema.description, /Set false for an interactive session/);
   });
 });
 
@@ -2587,7 +2581,7 @@ describe("subagent messaging", () => {
     );
   });
 
-  it("includes PI_LUVUS_PARENT_ROSTER in both spawn and resume env builders", () => {
+  it("includes PI_LUVUS_PARENT_ROSTER in the spawn env builder", () => {
     const rosterFile = "/s/artifacts/parent/luvus-roster.json";
     const spawn = testApi().buildSpawnEnvParts({
       name: "Worker",
@@ -2600,17 +2594,6 @@ describe("subagent messaging", () => {
     });
     assert.equal(spawn.PI_LUVUS_PARENT_ROSTER, rosterFile);
     assert.equal(spawn.PI_LUVUS_SURFACE, "24");
-
-    const resume = testApi().buildResumeEnvParts({
-      name: "Worker",
-      sessionPath: "/s/worker.jsonl",
-      id: "a1",
-      activityFile: "/s/a1.activity.json",
-      autoExit: true,
-      parentRosterFile: rosterFile,
-    });
-    assert.equal(resume.PI_LUVUS_PARENT_ROSTER, rosterFile);
-    assert.equal(resume.PI_LUVUS_AUTO_EXIT, "1");
   });
 
   it("resolves parent, children and siblings and excludes self", () => {

@@ -44,6 +44,7 @@ import {
 import {
   LAUNCH_RECORD_VERSION,
   getLaunchRecordFile,
+  readLaunchRecord,
   writeLaunchRecord,
   type LaunchBackendName,
   type LaunchRecord,
@@ -164,10 +165,9 @@ export interface SupervisorContext {
   cwd: string;
 }
 
-/** Parameters of `supervisor.resume` (today's `luvus_resume` tool parameters). */
+/** Parameters of the `luvus_resume` tool. */
 export interface ResumeParams {
   sessionPath: string;
-  name?: string;
   surface?: string;
   message?: string;
   autoExit?: boolean;
@@ -505,27 +505,6 @@ export function buildSpawnEnvParts(params: {
   return env;
 }
 
-/** Env for a resumed pi subagent, in launch-spec form. */
-export function buildResumeEnvParts(params: {
-  name: string;
-  sessionPath: string;
-  id: string;
-  activityFile: string;
-  autoExit: boolean;
-  codingAgentDir?: string;
-  parentRosterFile?: string;
-}): Record<string, string> {
-  const env: Record<string, string> = {};
-  if (params.codingAgentDir) env.PI_CODING_AGENT_DIR = params.codingAgentDir;
-  env.PI_LUVUS_NAME = params.name;
-  env.PI_LUVUS_SESSION = params.sessionPath;
-  env.PI_LUVUS_ID = params.id;
-  env.PI_LUVUS_ACTIVITY_FILE = params.activityFile;
-  if (params.autoExit) env.PI_LUVUS_AUTO_EXIT = "1";
-  if (params.parentRosterFile) env.PI_LUVUS_PARENT_ROSTER = params.parentRosterFile;
-  return env;
-}
-
 /** Task hint shown to the child: auto-exit agents are now told to exit explicitly too. */
 export function resolveModeHint(autoExit?: boolean): string {
   return autoExit
@@ -777,14 +756,6 @@ export function resolveResultPresentation(
     : `Sub-agent "${name}" completed (${formatElapsed(result.elapsed)}).\n\n${summary}${sessionRef}`;
 }
 
-export function resolveResumeLaunchBehavior(params: { autoExit?: boolean }): {
-  autoExit: boolean;
-  interactive: boolean;
-} {
-  const autoExit = params.autoExit ?? true;
-  return { autoExit, interactive: !autoExit };
-}
-
 export function activityLabel(activity: SubagentActivityState): string | undefined {
   if (activity.phase !== "active") return undefined;
   if (activity.activeScope === "tool") return activity.toolName ?? "tool";
@@ -952,7 +923,8 @@ export interface BackendLaunchRequest {
   task: string;
   /** Skill prompts for this spawn, which the record does not keep. */
   skills?: string;
-  launchBehavior: LaunchBehavior;
+  /** Spawn-only: how the task reaches the child. */
+  launchBehavior?: LaunchBehavior;
   /** The target cwd's `.pi/agent` directory, when it has one. */
   localAgentDir: string | null;
   artifactDir: string;
@@ -961,6 +933,11 @@ export interface BackendLaunchRequest {
   parentRosterFile?: string;
   /** Claude Code session id from the spawn parameters (removed in a later row). */
   resumeSessionId?: string;
+  /** Set when the run continues an existing session (design D5). */
+  resume?: {
+    /** The follow-up message; the session keeps the spawn task and role. */
+    message?: string;
+  };
   /** Values that change for every run; the record does not keep them (design D3). */
   run: {
     id: string;
@@ -970,6 +947,8 @@ export interface BackendLaunchRequest {
     sessionFile: string;
     launchScriptFile: string;
     activityFile: string;
+    /** Session entries the run starts after: 0 for a spawn, N for a resume. */
+    entryCountBefore: number;
   };
 }
 
@@ -1021,24 +1000,11 @@ interface SubagentBackend {
 }
 
 function buildPiLaunch(request: BackendLaunchRequest): BackendLaunch {
-  const { record, launchBehavior, run } = request;
+  const { record, run } = request;
+  const resume = request.resume;
 
-  // Only full-context fork mode inherits prior conversation state.
-  // Blank-session modes need the wrapper instructions and artifact-backed handoff.
   const identity = record.rolePrompt ?? null;
   const systemPromptMode = record.systemPromptMode;
-  const identityInSystemPrompt = systemPromptMode && identity;
-  const roleBlock = identity && !identityInSystemPrompt ? `\n\n${identity}` : "";
-  const fullTask = buildSubagentTaskPrompt({
-    task: request.task,
-    roleBlock,
-    modeHint: resolveModeHint(record.autoExit),
-    summaryInstruction: record.autoExit
-      ? "Your FINAL assistant message should summarize what you accomplished. Put the verdict or outcome first. Keep it short: results and findings, not your process. Follow your role's report format if it sets one."
-      : "Your FINAL assistant message (before calling luvus_done or before the user exits) should summarize what you accomplished. Put the verdict or outcome first. Keep it short: results and findings, not your process. Follow your role's report format if it sets one.",
-    messagingHint: buildLaunchMessagingHint(request.siblingNames),
-    inheritsConversationContext: launchBehavior.inheritsConversationContext,
-  });
 
   // Build pi argv (no shell: every value stays exactly one argument).
   const piArgs: string[] = ["--session", run.sessionFile];
@@ -1051,10 +1017,11 @@ function buildPiLaunch(request: BackendLaunchRequest): BackendLaunch {
     piArgs.push("--model", model);
   }
 
-  // Pass agent body as system prompt via file to avoid shell escaping issues
-  // with multiline content. Pi's --append-system-prompt and --system-prompt
-  // auto-detect file paths and read their contents.
-  if (identityInSystemPrompt && identity) {
+  // Pass the role prompt as a system prompt via file to avoid shell escaping
+  // issues with multiline content. Pi's --append-system-prompt and
+  // --system-prompt auto-detect file paths and read their contents. A pi
+  // session does not store these flags, so a resume writes the file again.
+  if (systemPromptMode && identity) {
     const flag = systemPromptMode === "replace" ? "--system-prompt" : "--append-system-prompt";
     const spTimestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
     const spSafeName = slugifyName(record.name, { hyphenate: false });
@@ -1092,29 +1059,68 @@ function buildPiLaunch(request: BackendLaunchRequest): BackendLaunch {
     parentRosterFile: request.parentRosterFile,
   });
 
-  // Pass task and skill prompts to the sub-agent.
-  // Only full-context fork mode gets a direct task argument because it already
-  // inherits the parent conversation. Blank-session modes use artifact-backed
-  // handoff so the wrapper instructions arrive as the initial user message.
-  let taskArg: string;
-  if (launchBehavior.taskDelivery === "direct") {
-    taskArg = fullTask;
+  if (resume) {
+    // The session keeps the spawn task and role. A resume adds only the follow-up
+    // message, behind the peers the child can reach at resume time.
+    if (resume.message) {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const safeName = slugifyName(record.name, { hyphenate: false });
+      const promptPath = join(
+        request.artifactDir,
+        "luvus-resume",
+        `${safeName || "resume"}-${timestamp}.md`,
+      );
+      mkdirSync(dirname(promptPath), { recursive: true });
+      writeFileSync(
+        promptPath,
+        `${buildLaunchMessagingHint(request.siblingNames)}\n\n${resume.message}`,
+        "utf8",
+      );
+      piArgs.push(`@${promptPath}`);
+    }
   } else {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    const safeName = slugifyName(record.name, { hyphenate: false });
-    const artifactName = `context/${safeName || "subagent"}-${timestamp}.md`;
-    const artifactPath = join(request.artifactDir, artifactName);
-    mkdirSync(dirname(artifactPath), { recursive: true });
-    writeFileSync(artifactPath, fullTask, "utf8");
-    taskArg = `@${artifactPath}`;
-  }
+    const launchBehavior = request.launchBehavior;
+    if (!launchBehavior) throw new Error("A spawn launch needs a launch behavior");
 
-  for (const promptArg of buildPiPromptArgs({
-    effectiveSkills: request.skills,
-    taskDelivery: launchBehavior.taskDelivery,
-    taskArg,
-  })) {
-    piArgs.push(promptArg);
+    // Only full-context fork mode inherits prior conversation state.
+    // Blank-session modes need the wrapper instructions and artifact-backed handoff.
+    const identityInSystemPrompt = systemPromptMode && identity;
+    const roleBlock = identity && !identityInSystemPrompt ? `\n\n${identity}` : "";
+    const fullTask = buildSubagentTaskPrompt({
+      task: request.task,
+      roleBlock,
+      modeHint: resolveModeHint(record.autoExit),
+      summaryInstruction: record.autoExit
+        ? "Your FINAL assistant message should summarize what you accomplished. Put the verdict or outcome first. Keep it short: results and findings, not your process. Follow your role's report format if it sets one."
+        : "Your FINAL assistant message (before calling luvus_done or before the user exits) should summarize what you accomplished. Put the verdict or outcome first. Keep it short: results and findings, not your process. Follow your role's report format if it sets one.",
+      messagingHint: buildLaunchMessagingHint(request.siblingNames),
+      inheritsConversationContext: launchBehavior.inheritsConversationContext,
+    });
+
+    // Pass task and skill prompts to the sub-agent.
+    // Only full-context fork mode gets a direct task argument because it already
+    // inherits the parent conversation. Blank-session modes use artifact-backed
+    // handoff so the wrapper instructions arrive as the initial user message.
+    let taskArg: string;
+    if (launchBehavior.taskDelivery === "direct") {
+      taskArg = fullTask;
+    } else {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const safeName = slugifyName(record.name, { hyphenate: false });
+      const artifactName = `context/${safeName || "subagent"}-${timestamp}.md`;
+      const artifactPath = join(request.artifactDir, artifactName);
+      mkdirSync(dirname(artifactPath), { recursive: true });
+      writeFileSync(artifactPath, fullTask, "utf8");
+      taskArg = `@${artifactPath}`;
+    }
+
+    for (const promptArg of buildPiPromptArgs({
+      effectiveSkills: request.skills,
+      taskDelivery: launchBehavior.taskDelivery,
+      taskArg,
+    })) {
+      piArgs.push(promptArg);
+    }
   }
 
   return {
@@ -1126,7 +1132,7 @@ function buildPiLaunch(request: BackendLaunchRequest): BackendLaunch {
       command: "pi",
       args: piArgs,
       sessionFile: run.sessionFile,
-      title: buildPaneTitle(record.name, request.task),
+      title: buildPaneTitle(record.name, resume?.message ?? request.task),
     },
     running: {
       id: run.id,
@@ -1679,6 +1685,7 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
         sessionFile: subagentSessionFile,
         launchScriptFile,
         activityFile,
+        entryCountBefore: 0,
       },
     });
 
@@ -1943,19 +1950,40 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
     },
 
     async resume(params, ctx, options) {
-      const name = params.name ?? "Resume";
-      const { autoExit, interactive } = resolveResumeLaunchBehavior(params);
       const startTime = Date.now();
       const id = Math.random().toString(16).slice(2, 10);
-
-      // Record entry count before resuming so we can extract new messages
-      const entryCountBefore = getNewEntries(params.sessionPath, 0).length;
 
       const sessionId = ctx.sessionManager.getSessionId();
       const artifactDir = getArtifactDir(ctx.sessionManager.getSessionDir(), sessionId);
       const activityFile = getSubagentActivityFile(artifactDir, id);
       mkdirSync(dirname(activityFile), { recursive: true });
       ensureRosterContext(ctx);
+
+      // A pi record restores the role the spawn resolved. Without one, or with
+      // a Claude Code record (a later row), the resume stays plain pi.
+      const storedRecord = readLaunchRecord(getLaunchRecordFile(params.sessionPath));
+      const record = storedRecord?.backend === "pi" ? storedRecord : null;
+      const autoExit = params.autoExit ?? record?.autoExit ?? true;
+      // An explicit autoExit makes the run interactive exactly when it is false.
+      let interactive = record?.interactive ?? !autoExit;
+      if (params.autoExit !== undefined) interactive = !params.autoExit;
+      const effectiveRecord: LaunchRecord = record
+        ? { ...record, autoExit, interactive }
+        : {
+            version: LAUNCH_RECORD_VERSION,
+            backend: "pi",
+            name: "Resume",
+            denyTools: [],
+            autoExit,
+            interactive,
+          };
+      const name = effectiveRecord.name;
+
+      // Record the entry count before the resume so its delivery only reads the
+      // entries the resumed run writes.
+      const entryCountBefore = existsSync(params.sessionPath)
+        ? getNewEntries(params.sessionPath, 0).length
+        : 0;
 
       // Compute the launch-spec path and its pane line before any pane
       // exists, so an unsafe path fails without leaving an empty pane behind.
@@ -1969,64 +1997,30 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
       const surface = deps.luvus.createSurface(name, options?.placement);
       await new Promise<void>((resolve) => setTimeout(resolve, getShellReadyDelayMs()));
 
-      // Build pi resume argv (no shell: every value stays one argument).
-      const resumeArgs: string[] = ["--session", params.sessionPath];
-
-      // Load luvus-done extension so the agent can self-terminate if needed
-      const subagentDonePath = join(SUBAGENTS_DIR, "luvus-done.ts");
-      resumeArgs.push("-e", subagentDonePath);
-
-      if (params.message) {
-        const msgTimestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-        const resumeMsgFile = join(
-          artifactDir,
-          "luvus-resume",
-          `${slugifyName(name, { fallback: "resume", hyphenate: false })}-${msgTimestamp}.md`,
-        );
-        mkdirSync(dirname(resumeMsgFile), { recursive: true });
-        writeFileSync(resumeMsgFile, params.message, "utf8");
-        resumeArgs.push(`@${resumeMsgFile}`);
-      }
-
-      // Env — propagate PI_CODING_AGENT_DIR for config isolation
-      const resumeEnv = buildResumeEnvParts({
-        name,
-        sessionPath: params.sessionPath,
-        id,
-        activityFile,
-        autoExit,
-        codingAgentDir: process.env.PI_CODING_AGENT_DIR,
+      // Mirror the spawn's cwd lookup: only a record that names a cwd can have
+      // its own `.pi/agent` configuration.
+      const localAgentDir = effectiveRecord.cwd ? join(effectiveRecord.cwd, ".pi", "agent") : null;
+      const { spec, running } = BACKENDS.pi.buildLaunch({
+        record: effectiveRecord,
+        task: params.message ?? "resumed session",
+        localAgentDir,
+        artifactDir,
+        siblingNames: Array.from(runningSubagents.values(), (agent) => agent.name),
         parentRosterFile: rosterContext?.file,
+        resume: { message: params.message },
+        run: {
+          id,
+          surface,
+          startTime,
+          sessionFile: params.sessionPath,
+          launchScriptFile,
+          activityFile,
+          entryCountBefore,
+        },
       });
-
-      const spec: LaunchSpec = {
-        version: LAUNCH_SPEC_VERSION,
-        name,
-        env: resumeEnv,
-        command: "pi",
-        args: resumeArgs,
-        sessionFile: params.sessionPath,
-        title: buildPaneTitle(name, params.message),
-      };
       writeLaunchSpec(launchScriptFile, spec);
       deps.luvus.runInPane(surface, paneLine);
 
-      // Register as a running subagent for widget tracking
-      const running: RunningSubagent = {
-        id,
-        name,
-        task: params.message ?? "resumed session",
-        surface,
-        startTime,
-        sessionFile: params.sessionPath,
-        launchScriptFile,
-        activityFile,
-        interactive,
-        statusState: createStatusState({
-          source: "pi",
-          startTimeMs: startTime,
-        }),
-      };
       runningSubagents.set(id, running);
       writeRoster();
 

@@ -28,7 +28,6 @@ import {
   borderLine,
   buildLaunchMessagingHint,
   buildPiPromptArgs,
-  buildResumeEnvParts,
   buildRosterPayload,
   buildSpawnEnvParts,
   buildSubagentTaskPrompt,
@@ -45,7 +44,6 @@ import {
   resolveEffectiveSessionMode,
   resolveLaunchBehavior,
   resolveResultPresentation,
-  resolveResumeLaunchBehavior,
   type ParentMessage,
   type RunningSubagent,
   type SubagentRoster,
@@ -414,10 +412,8 @@ export const __test__ = {
   observeRunningSubagent,
   resolveDenyTools,
   resolveResultPresentation,
-  resolveResumeLaunchBehavior,
   buildRosterPayload,
   buildSpawnEnvParts,
-  buildResumeEnvParts,
   resolveMessageTarget,
   formatMessageHeader,
   buildLaunchMessagingHint,
@@ -814,7 +810,11 @@ export default function subagentsExtension(pi: ExtensionAPI) {
         "Resume an earlier subagent session (surface parameter); its result arrives later as a steer message.",
       parameters: Type.Object({
         sessionPath: Type.String({ description: "Path to the session .jsonl file." }),
-        name: Type.Optional(Type.String({ description: "Display name. Default: 'Resume'." })),
+        message: Type.Optional(
+          Type.String({
+            description: "Message to send after the resume, for example follow-up instructions.",
+          }),
+        ),
         surface: Type.Optional(
           Type.Union(
             [
@@ -828,23 +828,19 @@ export default function subagentsExtension(pi: ExtensionAPI) {
             },
           ),
         ),
-        message: Type.Optional(
-          Type.String({
-            description: "Message to send after the resume, for example follow-up instructions.",
-          }),
-        ),
         autoExit: Type.Optional(
           Type.Boolean({
             description:
-              "Exit after the response. Defaults to true; set false for an interactive session.",
+              "Exit after the response. Default: the launch record value, or true without a record. Set false for an interactive session.",
           }),
         ),
       }),
 
-      renderCall(args, theme) {
-        const name = args.name ?? "Resume";
+      renderCall(_args, theme) {
         const text =
-          "▸ " + theme.fg("toolTitle", theme.bold(name)) + theme.fg("dim", " — resuming session");
+          "▸ " +
+          theme.fg("toolTitle", theme.bold("Resume")) +
+          theme.fg("dim", " — resuming session");
         return new Text(text, 0, 0);
       },
 
