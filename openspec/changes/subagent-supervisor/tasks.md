@@ -12,8 +12,8 @@
 
 ## 3. Launch record at spawn
 
-- [ ] 3.1 Add the launch record type, `writeLaunchRecord` (temp file and rename) and `readLaunchRecord` (returns `null` for a missing or invalid file) (D3). Verify with unit tests: a round trip, a missing file, invalid JSON, a wrong `version`, and a record with no per-run fields.
-- [ ] 3.2 Make spawn resolve the agent defaults into a record, write `<session>.launch.json` before it runs the pane line, and build the `LaunchSpec` from the record and the run binding. Verify in `test/supervisor.test.ts` with fake Luvus: a pi spawn of an agent with `spawning: false` and a `cwd` writes a record with backend `pi`, the agent, the cwd and the denied spawning tools, and no task text and no subagent id. A Claude Code spawn writes backend `claude`. The written `LaunchSpec` argv and env match the values from before this change.
+- [x] 3.1 Add the launch record type, `writeLaunchRecord` (temp file and rename) and `readLaunchRecord` (returns `null` for a missing or invalid file) (D3). Verify with unit tests: a round trip, a missing file, invalid JSON, a wrong `version`, and a record with no per-run fields.
+- [x] 3.2 Make spawn resolve the agent defaults into a record, write `<session>.launch.json` before it runs the pane line, and build the `LaunchSpec` from the record and the run binding. Verify in `test/supervisor.test.ts` with fake Luvus: a pi spawn of an agent with `spawning: false` and a `cwd` writes a record with backend `pi`, the agent, the cwd and the denied spawning tools, and no task text and no subagent id. A Claude Code spawn writes backend `claude`. The written `LaunchSpec` argv and env match the values from before this change.
 
 ## 4. Resume from the record
 
