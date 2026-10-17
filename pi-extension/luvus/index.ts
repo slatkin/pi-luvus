@@ -28,16 +28,13 @@ import {
   borderLine,
   buildLaunchMessagingHint,
   buildPiPromptArgs,
-  buildRosterPayload,
   buildSpawnEnvParts,
   buildSubagentTaskPrompt,
   drainAndRemoveParentMessages,
   formatElapsed,
-  formatWidgetRightLabel,
   getDefaultSessionDirFor,
   getParentMessageFile,
   getShellReadyDelayMs,
-  observeRunningSubagent,
   readParentMessages,
   resolveDenyTools,
   resolveEffectiveInteractive,
@@ -190,10 +187,8 @@ export const __surfaceTest__ = {
 // ── Parent/child messaging (design Decisions 4, 5, 8) ──
 //
 // Children and siblings are addressed through Luvus `agent prompt` (luvus.ts).
-// `parent` is not: typing into the parent's pane merges with and submits
-// whatever draft the user is composing there (task 1.1, case d), so a child
-// appends JSON lines to `<session>.msg` and the parent's existing poll loop
-// injects them as steering messages.
+// `parent` is not: a child appends JSON lines to `<session>.msg`, and the
+// parent's existing poll loop injects them as steering messages.
 
 export type SubagentRelation = "parent" | "child" | "sibling";
 
@@ -402,24 +397,19 @@ export const __test__ = {
     return currentSupervisor().renderSubagentWidgetLines(agents, width);
   },
   loadAgentDefaults,
-  discoverAgentDefinitions,
   resolveEffectiveSessionMode,
   resolveLaunchBehavior,
   resolveEffectiveInteractive,
   buildSubagentToolAllowlist,
   buildPiPromptArgs,
-  formatWidgetRightLabel,
-  observeRunningSubagent,
   resolveDenyTools,
   resolveResultPresentation,
-  buildRosterPayload,
   buildSpawnEnvParts,
   resolveMessageTarget,
   formatMessageHeader,
   buildLaunchMessagingHint,
   buildSubagentTaskPrompt,
   sendSubagentMessage,
-  appendParentMessage,
   readParentMessages,
   drainAndRemoveParentMessages(
     running: RunningSubagent,
@@ -430,20 +420,15 @@ export const __test__ = {
   getCurrentSupervisor(): Supervisor {
     return currentSupervisor();
   },
-  formatElapsed,
   getDefaultSessionDirFor,
 };
 
 /**
  * True when this pi process is a subagent child: it carries a sidecar session
- * path, and its launch args load `luvus-done.ts`. In a child, that extension
- * owns the pane status end to end — it registers the reporter and publishes the
- * terminal status at its exit points. pi evaluates `luvus-status.ts` once per
- * extension entry, so a child that also registered the `index.ts` reporter
- * would run two reporters with separate terminal latches: the un-latched one
- * reports `idle` on agent_end and releases the lease on shutdown after the
- * other published `done`. Skipping the registration here keeps one reporter
- * per child. A plain pane (no child env) registers as before.
+ * path, and its launch args load `luvus-done.ts`. That extension owns the
+ * child's status reporter. A second reporter would keep its own terminal latch,
+ * so this registration is skipped here to keep one reporter per child. A plain
+ * pane (no child env) registers as before.
  */
 export function isSubagentChild(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env.PI_LUVUS_SESSION);
@@ -460,8 +445,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
   activePi = pi;
 
   // Live sidebar status for this pane. A subagent child does NOT register it:
-  // the child also loads luvus-done.ts, whose reporter is the single owner
-  // of the status lease (see isSubagentChild).
+  // luvus-done.ts owns the child's reporter (see isSubagentChild).
   if (!isSubagentChild()) createLuvusStatusReporter().register(pi);
 
   // One Luvus notification when a turn ends in an unfocused parent pane.

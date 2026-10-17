@@ -12,6 +12,7 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -45,6 +46,7 @@ import {
   LAUNCH_RECORD_VERSION,
   getLaunchRecordFile,
   readLaunchRecord,
+  writeJsonAtomic,
   writeLaunchRecord,
   type LaunchBackendName,
   type LaunchRecord,
@@ -566,6 +568,8 @@ export function readParentMessages(
 ): { messages: ParentMessage[]; offset: number } {
   let raw: Buffer;
   try {
+    // Most ticks find no new bytes; checking the size first skips the read.
+    if (statSync(file).size === offset) return { messages: [], offset };
     raw = readFileSync(file);
   } catch {
     return { messages: [], offset };
@@ -1001,6 +1005,20 @@ interface SubagentBackend {
   afterExit: BackendAfterExit;
 }
 
+/** Write one run's context file under the artifact directory and return its path. */
+function writeRunContextFile(
+  artifactDir: string,
+  folder: string,
+  stem: string,
+  content: string,
+): string {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const file = join(artifactDir, folder, `${stem}-${timestamp}.md`);
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, content, "utf8");
+  return file;
+}
+
 function buildPiLaunch(request: BackendLaunchRequest): BackendLaunch {
   const { record, run } = request;
   const resume = request.resume;
@@ -1025,14 +1043,12 @@ function buildPiLaunch(request: BackendLaunchRequest): BackendLaunch {
   // session does not store these flags, so a resume writes the file again.
   if (systemPromptMode && identity) {
     const flag = systemPromptMode === "replace" ? "--system-prompt" : "--append-system-prompt";
-    const spTimestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    const spSafeName = slugifyName(record.name, { hyphenate: false });
-    const syspromptPath = join(
+    const syspromptPath = writeRunContextFile(
       request.artifactDir,
-      `context/${spSafeName || "subagent"}-sysprompt-${spTimestamp}.md`,
+      "context",
+      `${slugifyName(record.name, { hyphenate: false }) || "subagent"}-sysprompt`,
+      identity,
     );
-    mkdirSync(dirname(syspromptPath), { recursive: true });
-    writeFileSync(syspromptPath, identity, "utf8");
     piArgs.push(flag, syspromptPath);
   }
 
@@ -1065,18 +1081,11 @@ function buildPiLaunch(request: BackendLaunchRequest): BackendLaunch {
     // The session keeps the spawn task and role. A resume adds only the follow-up
     // message, behind the peers the child can reach at resume time.
     if (resume.message) {
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-      const safeName = slugifyName(record.name, { hyphenate: false });
-      const promptPath = join(
+      const promptPath = writeRunContextFile(
         request.artifactDir,
         "luvus-resume",
-        `${safeName || "resume"}-${timestamp}.md`,
-      );
-      mkdirSync(dirname(promptPath), { recursive: true });
-      writeFileSync(
-        promptPath,
+        slugifyName(record.name, { hyphenate: false }) || "resume",
         `${buildLaunchMessagingHint(request.siblingNames)}\n\n${resume.message}`,
-        "utf8",
       );
       piArgs.push(`@${promptPath}`);
     }
@@ -1107,22 +1116,22 @@ function buildPiLaunch(request: BackendLaunchRequest): BackendLaunch {
     if (launchBehavior.taskDelivery === "direct") {
       taskArg = fullTask;
     } else {
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-      const safeName = slugifyName(record.name, { hyphenate: false });
-      const artifactName = `context/${safeName || "subagent"}-${timestamp}.md`;
-      const artifactPath = join(request.artifactDir, artifactName);
-      mkdirSync(dirname(artifactPath), { recursive: true });
-      writeFileSync(artifactPath, fullTask, "utf8");
+      const artifactPath = writeRunContextFile(
+        request.artifactDir,
+        "context",
+        slugifyName(record.name, { hyphenate: false }) || "subagent",
+        fullTask,
+      );
       taskArg = `@${artifactPath}`;
     }
 
-    for (const promptArg of buildPiPromptArgs({
-      effectiveSkills: request.skills,
-      taskDelivery: launchBehavior.taskDelivery,
-      taskArg,
-    })) {
-      piArgs.push(promptArg);
-    }
+    piArgs.push(
+      ...buildPiPromptArgs({
+        effectiveSkills: request.skills,
+        taskDelivery: launchBehavior.taskDelivery,
+        taskArg,
+      }),
+    );
   }
 
   return {
@@ -1404,25 +1413,24 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
         parentName: rosterContext.parentName,
         children: runningSubagents.values(),
       });
-      mkdirSync(dirname(rosterContext.file), { recursive: true });
-      const tmp = `${rosterContext.file}.tmp`;
-      writeFileSync(tmp, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-      renameSync(tmp, rosterContext.file);
+      writeJsonAtomic(rosterContext.file, payload);
     } catch {
       // Best effort — see the doc comment.
     }
   }
 
   function updateWidget(): void {
+    // Stop the refresh timer once nothing runs, with or without a UI.
+    if (runningSubagents.size === 0 && widgetInterval) {
+      clearInterval(widgetInterval);
+      widgetInterval = null;
+    }
+
     const ctx = deps.ui();
     if (!ctx?.hasUI) return;
 
     if (runningSubagents.size === 0) {
       ctx.ui.setWidget("luvus-status", undefined);
-      if (widgetInterval) {
-        clearInterval(widgetInterval);
-        widgetInterval = null;
-      }
       return;
     }
 
@@ -1590,6 +1598,24 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
   }
 
   /**
+   * Build a run's launch spec, write it beside the pane, start the pane command
+   * and register the run. Spawn and resume both end here.
+   */
+  function startRun(
+    backend: SubagentBackend,
+    request: BackendLaunchRequest,
+    paneLine: string,
+  ): RunningSubagent {
+    const { spec, running } = backend.buildLaunch(request);
+    writeLaunchSpec(request.run.launchScriptFile, spec);
+    deps.luvus.runInPane(request.run.surface, paneLine);
+
+    runningSubagents.set(running.id, running);
+    writeRoster();
+    return running;
+  }
+
+  /**
    * Launch a subagent: creates the multiplexer pane, builds the command, and
    * sends it. Returns a RunningSubagent — does NOT poll.
    *
@@ -1688,32 +1714,40 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
     const activityFile = getSubagentActivityFile(artifactDir, id);
     mkdirSync(dirname(activityFile), { recursive: true });
 
-    const { spec, running } = backend.buildLaunch({
-      record,
-      task: params.task,
-      skills: effectiveSkills,
-      launchBehavior,
-      localAgentDir,
-      artifactDir,
-      siblingNames: Array.from(runningSubagents.values(), (agent) => agent.name),
-      parentRosterFile: rosterContext?.file,
-      run: {
-        id,
-        surface,
-        startTime,
-        sessionFile: subagentSessionFile,
-        launchScriptFile,
-        activityFile,
-        entryCountBefore: 0,
+    return startRun(
+      backend,
+      {
+        record,
+        task: params.task,
+        skills: effectiveSkills,
+        launchBehavior,
+        localAgentDir,
+        artifactDir,
+        siblingNames: Array.from(runningSubagents.values(), (agent) => agent.name),
+        parentRosterFile: rosterContext?.file,
+        run: {
+          id,
+          surface,
+          startTime,
+          sessionFile: subagentSessionFile,
+          launchScriptFile,
+          activityFile,
+          entryCountBefore: 0,
+        },
       },
-    });
+      paneLine,
+    );
+  }
 
-    writeLaunchSpec(launchScriptFile, spec);
-    deps.luvus.runInPane(surface, paneLine);
-
-    runningSubagents.set(id, running);
+  /** Close a finished run's pane, drop its entry and refresh the roster. */
+  function releaseRun(running: RunningSubagent): void {
+    try {
+      deps.luvus.closeSurface(running.surface);
+    } catch {
+      // The pane may already be gone (closed by hand); the run's result stands.
+    }
+    runningSubagents.delete(running.id);
     writeRoster();
-    return running;
   }
 
   /**
@@ -1772,13 +1806,7 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
       const extracted = backend.extractResult(running, result, deps.luvus.readScreen);
       const afterExit = backend.afterExit(running);
 
-      try {
-        deps.luvus.closeSurface(surface);
-      } catch {
-        // The pane may already be gone (closed by hand); the sidecar result stands.
-      }
-      runningSubagents.delete(running.id);
-      writeRoster();
+      releaseRun(running);
 
       return {
         name,
@@ -1789,13 +1817,7 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
         ...(afterExit.claudeSessionId ? { claudeSessionId: afterExit.claudeSessionId } : {}),
       };
     } catch (err: any) {
-      try {
-        deps.luvus.closeSurface(surface);
-      } catch {
-        // The pane may already be gone.
-      }
-      runningSubagents.delete(running.id);
-      writeRoster();
+      releaseRun(running);
       try {
         rmSync(getParentMessageFile(sessionFile), { force: true });
       } catch {
@@ -1987,8 +2009,8 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
 
       const autoExit = params.autoExit ?? storedRecord?.autoExit ?? true;
       // An explicit autoExit makes the run interactive exactly when it is false.
-      let interactive = storedRecord?.interactive ?? !autoExit;
-      if (params.autoExit !== undefined) interactive = !params.autoExit;
+      const interactive =
+        params.autoExit !== undefined ? !params.autoExit : (storedRecord?.interactive ?? !autoExit);
       const effectiveRecord: LaunchRecord = storedRecord
         ? { ...storedRecord, autoExit, interactive }
         : {
@@ -2025,29 +2047,28 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
       // Mirror the spawn's cwd lookup: only a record that names a cwd can have
       // its own `.pi/agent` configuration.
       const localAgentDir = effectiveRecord.cwd ? join(effectiveRecord.cwd, ".pi", "agent") : null;
-      const { spec, running } = backend.buildLaunch({
-        record: effectiveRecord,
-        task: params.message ?? "resumed session",
-        localAgentDir,
-        artifactDir,
-        siblingNames: Array.from(runningSubagents.values(), (agent) => agent.name),
-        parentRosterFile: rosterContext?.file,
-        resume: { message: params.message },
-        run: {
-          id,
-          surface,
-          startTime,
-          sessionFile: params.sessionPath,
-          launchScriptFile,
-          activityFile,
-          entryCountBefore,
+      const running = startRun(
+        backend,
+        {
+          record: effectiveRecord,
+          task: params.message ?? "resumed session",
+          localAgentDir,
+          artifactDir,
+          siblingNames: Array.from(runningSubagents.values(), (agent) => agent.name),
+          parentRosterFile: rosterContext?.file,
+          resume: { message: params.message },
+          run: {
+            id,
+            surface,
+            startTime,
+            sessionFile: params.sessionPath,
+            launchScriptFile,
+            activityFile,
+            entryCountBefore,
+          },
         },
-      });
-      writeLaunchSpec(launchScriptFile, spec);
-      deps.luvus.runInPane(surface, paneLine);
-
-      runningSubagents.set(id, running);
-      writeRoster();
+        paneLine,
+      );
 
       startWatcher(running);
 

@@ -109,13 +109,17 @@ export function validateLaunchRecord(data: unknown): LaunchRecord {
   };
 }
 
-/** Write the record with a temp file and a rename, creating its directory. */
+/** Write JSON with a temp file and a rename, creating its directory. */
+export function writeJsonAtomic(file: string, value: unknown): void {
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = `${file}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  renameSync(tmp, file);
+}
+
+/** Write the record atomically, creating its directory. */
 export function writeLaunchRecord(recordFile: string, record: LaunchRecord): void {
-  const valid = validateLaunchRecord(record);
-  mkdirSync(dirname(recordFile), { recursive: true });
-  const tmp = `${recordFile}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(valid, null, 2)}\n`, "utf8");
-  renameSync(tmp, recordFile);
+  writeJsonAtomic(recordFile, validateLaunchRecord(record));
 }
 
 /** Read a record; a missing, unreadable or invalid file reads as no record. */

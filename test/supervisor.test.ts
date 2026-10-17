@@ -24,6 +24,7 @@ import {
   type SupervisorDeps,
 } from "../pi-extension/luvus/supervisor.ts";
 import { paneCommandLine, readLaunchSpec } from "../pi-extension/luvus/launch.ts";
+import { DEFAULT_STATUS_LINE_LIMIT } from "../pi-extension/luvus/status.ts";
 import {
   LAUNCH_RECORD_VERSION,
   getLaunchRecordFile,
@@ -196,7 +197,7 @@ function makeSupervisor(env: TestEnv, options: SupervisorOptions = {}) {
     events: fakeEvents,
     statusConfig: {
       enabled: true,
-      lineLimit: 4,
+      lineLimit: DEFAULT_STATUS_LINE_LIMIT,
       notifyEnabled: false,
       contextAlert: { enabled: false, threshold: { kind: "tokens", value: 200000 } },
     },
