@@ -533,11 +533,11 @@ spawning: false
 
 ## Tools Widget
 
-Every child session shows a compact tools widget with available and denied tools. Toggle it with `Ctrl+J`:
+Every child session shows a compact tools widget with available and denied tools. Toggle it with `Ctrl+H`:
 
 ```text
-[scout] — 12 tools · 4 denied  (Ctrl+J)              ← collapsed
-[scout] — 12 available  (Ctrl+J to collapse)          ← expanded
+[scout] — 12 tools · 4 denied  (Ctrl+H)              ← collapsed
+[scout] — 12 available  (Ctrl+H to collapse)          ← expanded
   read, bash, edit, write, todo, ...
   denied: subagent, luvus_list, ...
 ```
