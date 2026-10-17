@@ -62,11 +62,16 @@ Alternative: a module singleton. Rejected, because a later move of the runtime s
 
 `<session>.launch.json`:
 
-```
-{ version: 1, backend: "pi" | "claude", name, agent?, cwd?, model?, thinking?,
-  tools?, rolePrompt?, systemPromptMode?, denyTools: string[],
+```json
+{ version: 1, backend: "pi" | "claude", name, agent?, cwd, localAgentDir?,
+  model?, thinking?, tools?, rolePrompt?, systemPromptMode?, denyTools: string[],
   autoExit: boolean, interactive: boolean, claudeSessionId? }
 ```
+
+`cwd` is the working directory the spawn resolved: an explicit `cwd`, the
+agent's `cwd`, or the parent's cwd. `localAgentDir` is the `.pi/agent`
+directory the spawn adopted; it is absent when the spawn propagated the global
+config dir, so a resume never adopts a local config the spawn did not use.
 
 The spawn resolves the agent defaults once, writes the record, and then builds the run from the record. A resume reads the record and builds the run in the same way. So one builder per backend produces every `LaunchSpec`:
 

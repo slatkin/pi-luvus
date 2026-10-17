@@ -20,7 +20,11 @@ export interface LaunchRecord {
   backend: LaunchBackendName;
   name: string;
   agent?: string;
+  /** The working directory the spawn resolved, always present on spawn. */
   cwd?: string;
+  /** The `.pi/agent` directory the spawn adopted, absent when it propagated
+   * the global config dir. A resume must not adopt one the spawn did not. */
+  localAgentDir?: string;
   model?: string;
   thinking?: string;
   tools?: string;
@@ -85,6 +89,7 @@ export function validateLaunchRecord(data: unknown): LaunchRecord {
 
   const agent = optionalString(record.agent, "agent");
   const cwd = optionalString(record.cwd, "cwd");
+  const localAgentDir = optionalString(record.localAgentDir, "localAgentDir");
   const model = optionalString(record.model, "model");
   const thinking = optionalString(record.thinking, "thinking");
   const tools = optionalString(record.tools, "tools");
@@ -100,6 +105,7 @@ export function validateLaunchRecord(data: unknown): LaunchRecord {
     interactive: record.interactive,
     ...(agent !== undefined ? { agent } : {}),
     ...(cwd !== undefined ? { cwd } : {}),
+    ...(localAgentDir !== undefined ? { localAgentDir } : {}),
     ...(model !== undefined ? { model } : {}),
     ...(thinking !== undefined ? { thinking } : {}),
     ...(tools !== undefined ? { tools } : {}),

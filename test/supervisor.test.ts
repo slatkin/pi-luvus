@@ -378,7 +378,8 @@ describe("supervisor launch", () => {
       assert.deepEqual(spec.args.slice(0, 2), ["--session", running.sessionFile]);
       assert.equal(spec.sessionFile, running.sessionFile);
       assert.equal(spec.closeOnDone, undefined);
-      assert.equal(spec.cwd, undefined);
+      // No explicit cwd: the spec pins the working directory the spawn resolved.
+      assert.equal(spec.cwd, env.ctx.cwd);
       assert.equal(spec.title, "Scout — Fix the login bug");
       assert.equal(spec.env.PI_LUVUS_NAME, "Scout");
       assert.equal(spec.env.PI_LUVUS_SESSION, running.sessionFile);
@@ -426,6 +427,7 @@ describe("supervisor launch", () => {
         assert.equal(record.backend, "pi");
         assert.equal(record.agent, "scout");
         assert.equal(record.cwd, repoDir);
+        assert.equal(record.localAgentDir, join(repoDir, ".pi", "agent"));
         assert.equal(record.model, "test-model");
         assert.equal(record.tools, "read,bash");
         assert.equal(record.rolePrompt, "You are a scout.");
@@ -632,6 +634,34 @@ describe("supervisor resume", () => {
       assert.ok(prompt.indexOf("You can message") < prompt.indexOf("Continue the work"));
 
       assert.equal(h.supervisor.running()[0].interactive, false);
+    });
+  });
+
+  it("records the resolved working directory and resumes there without adopting a local agent dir", async () => {
+    await withHarness(async (h, env) => {
+      const running = await h.supervisor.spawn({ name: "Scout", task: "map the code" }, env.ctx);
+
+      // No explicit cwd: the record holds the spawn's resolved working
+      // directory and no local agent dir, because the spawn propagated the
+      // global config dir.
+      const record = readLaunchRecord(getLaunchRecordFile(running.sessionFile));
+      assert.ok(record);
+      assert.equal(record.cwd, env.ctx.cwd);
+      assert.equal("localAgentDir" in record, false);
+
+      // Resume from a parent whose cwd has its own .pi/agent: the spawn never
+      // used it, so the resume starts in the record's cwd with the global
+      // config dir, not the resume parent's local one.
+      const otherCwd = join(env.dir, "other");
+      mkdirSync(join(otherCwd, ".pi", "agent"), { recursive: true });
+      writePiSession(running.sessionFile);
+      const result = await h.supervisor.resume(
+        { sessionPath: running.sessionFile, message: "continue" },
+        { ...env.ctx, cwd: otherCwd },
+      );
+      const spec = readLaunchSpec(result.details.launchScriptFile as string);
+      assert.equal(spec.cwd, env.ctx.cwd);
+      assert.equal(spec.env.PI_CODING_AGENT_DIR, process.env.PI_CODING_AGENT_DIR);
     });
   });
 

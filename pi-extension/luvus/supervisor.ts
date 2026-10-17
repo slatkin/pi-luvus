@@ -1675,12 +1675,17 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
 
     // Resolve the agent defaults once and keep them in the launch record, so a
     // later resume starts the same role without reading the agent file again.
+    // The record's cwd is the working directory the spawn resolved — an
+    // explicit cwd, the agent's cwd, or the parent's cwd — and localAgentDir
+    // is the `.pi/agent` the spawn adopted, absent when it propagated the
+    // global config dir.
     const record: LaunchRecord = {
       version: LAUNCH_RECORD_VERSION,
       backend: backend.name,
       name: params.name,
       ...(params.agent ? { agent: params.agent } : {}),
-      ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
+      cwd: targetCwdForSession,
+      ...(localAgentDir ? { localAgentDir } : {}),
       ...(effectiveModel ? { model: effectiveModel } : {}),
       ...(effectiveThinking ? { thinking: effectiveThinking } : {}),
       ...(effectiveTools ? { tools: effectiveTools } : {}),
@@ -2044,9 +2049,10 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
       const surface = deps.luvus.createSurface(name, options?.placement);
       await new Promise<void>((resolve) => setTimeout(resolve, getShellReadyDelayMs()));
 
-      // Mirror the spawn's cwd lookup: only a record that names a cwd can have
-      // its own `.pi/agent` configuration.
-      const localAgentDir = effectiveRecord.cwd ? join(effectiveRecord.cwd, ".pi", "agent") : null;
+      // The spawn's own config-dir decision, recorded at spawn time: only a
+      // spawn that adopted a local `.pi/agent` recorded one, so a resume never
+      // adopts a local config the spawn did not use.
+      const localAgentDir = effectiveRecord.localAgentDir ?? null;
       const running = startRun(
         backend,
         {
