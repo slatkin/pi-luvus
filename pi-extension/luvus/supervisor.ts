@@ -209,6 +209,8 @@ export interface RunningSubagent {
   surface: string;
   startTime: number;
   sessionFile: string;
+  /** Session entries this run starts after: 0 for a spawn, N for a resume. */
+  entryCountBefore: number;
   /** Launch-spec path written under `<artifactDir>/luvus-scripts/`. */
   launchScriptFile?: string;
   activityFile?: string;
@@ -733,7 +735,7 @@ export function resolveResultPresentation(
   name: string,
 ): string {
   const sessionRef = result.sessionFile
-    ? `\n\nSession: ${result.sessionFile}\nResume: pi --session ${result.sessionFile}`
+    ? `\n\nSession: ${result.sessionFile}\nResume: luvus_resume ${result.sessionFile}`
     : "";
   const summary = capSummary(result.summary, result.sessionFile);
 
@@ -1144,6 +1146,7 @@ function buildPiLaunch(request: BackendLaunchRequest): BackendLaunch {
       sessionFile: run.sessionFile,
       launchScriptFile: run.launchScriptFile,
       activityFile: run.activityFile,
+      entryCountBefore: run.entryCountBefore,
       interactive: record.interactive,
       statusState: createStatusState({
         source: "pi",
@@ -1202,6 +1205,7 @@ function buildClaudeLaunch(request: BackendLaunchRequest): BackendLaunch {
       launchScriptFile: run.launchScriptFile,
       cli: "claude",
       sentinelFile,
+      entryCountBefore: run.entryCountBefore,
       interactive: record.interactive,
       statusState: createStatusState({
         source: "claude",
@@ -1221,7 +1225,8 @@ function extractPiResult(
       ? `Sub-agent exited with code ${poll.exitCode}`
       : "Sub-agent exited without output";
   const summary = existsSync(running.sessionFile)
-    ? (findLastAssistantMessage(getNewEntries(running.sessionFile, 0)) ?? fallback)
+    ? (findLastAssistantMessage(getNewEntries(running.sessionFile, running.entryCountBefore)) ??
+      fallback)
     : fallback;
   return {
     summary,
@@ -1807,25 +1812,16 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
 
   /**
    * Steer the parent with a finished subagent run: a ping when the child asked
-   * for help, otherwise the result. Shared by the `luvus_spawn` and
-   * `luvus_resume` tools, which differ only in the summary and extra details.
+   * for help, otherwise the result. Shared by spawned and resumed children.
    */
   function deliverSubagentCompletion(
     running: RunningSubagent,
     result: SubagentResult,
     send: SendFn,
-    options: {
-      /** Built lazily so a ping skips the summary work entirely. */
-      present: () => string;
-      /** Fields added to the result details (e.g. agent, claudeSessionId). */
-      extraDetails?: Record<string, unknown>;
-      /** Fields added to the ping details (e.g. the spawning agent). */
-      pingExtraDetails?: Record<string, unknown>;
-    },
   ): void {
     updateWidget(); // reflect removal from the Map immediately
 
-    const sessionRef = `\n\nSession: ${result.sessionFile}\nResume: pi --session ${result.sessionFile}`;
+    const sessionRef = `\n\nSession: ${result.sessionFile}\nResume: luvus_resume ${result.sessionFile}`;
     if (result.ping) {
       send(
         {
@@ -1833,10 +1829,11 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
           content: `Sub-agent "${result.ping.name}" needs help (${formatElapsed(result.elapsed)}):\n\n${result.ping.message}${sessionRef}`,
           display: true,
           details: {
-            name: result.ping.name,
+            name: running.name,
+            task: running.task,
+            agent: running.agent,
             message: result.ping.message,
             sessionFile: result.sessionFile,
-            ...options.pingExtraDetails,
           },
         },
         { triggerTurn: true, deliverAs: "steer" },
@@ -1845,7 +1842,7 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
     }
 
     if (result.handoff) {
-      // No `sessionRef` here: its `Resume: pi --session` line tells the parent
+      // No `sessionRef` here: its `Resume: luvus_resume` line tells the parent
       // to do the opposite of what a handoff needs. The session file still goes
       // in the content, and the instruction line says to start a new subagent.
       send(
@@ -1859,9 +1856,10 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
           display: true,
           details: {
             name: running.name,
+            task: running.task,
+            agent: running.agent,
             message: result.handoff.message,
             sessionFile: result.sessionFile,
-            ...options.pingExtraDetails,
           },
         },
         { triggerTurn: true, deliverAs: "steer" },
@@ -1872,16 +1870,17 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
     send(
       {
         customType: "luvus_result",
-        content: options.present(),
+        content: resolveResultPresentation(result, running.name),
         display: true,
         details: {
           name: running.name,
           task: running.task,
+          agent: running.agent,
           exitCode: result.exitCode,
           elapsed: result.elapsed,
           sessionFile: result.sessionFile,
           ...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
-          ...options.extraDetails,
+          ...(result.claudeSessionId ? { claudeSessionId: result.claudeSessionId } : {}),
         },
       },
       { triggerTurn: true, deliverAs: "steer" },
@@ -1889,20 +1888,20 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
   }
 
   /** Report a watcher failure to the parent; see deliverSubagentCompletion. */
-  function deliverSubagentError(
-    running: RunningSubagent,
-    err: unknown,
-    send: SendFn,
-    options: { contentPrefix: string; extraDetails?: Record<string, unknown> },
-  ): void {
+  function deliverSubagentError(running: RunningSubagent, err: unknown, send: SendFn): void {
     const message = (err as { message?: string } | undefined)?.message;
     updateWidget();
     send(
       {
         customType: "luvus_result",
-        content: `${options.contentPrefix}: ${message ?? String(err)}`,
+        content: `Sub-agent "${running.name}" error: ${message ?? String(err)}`,
         display: true,
-        details: { name: running.name, ...options.extraDetails, error: message },
+        details: {
+          name: running.name,
+          task: running.task,
+          agent: running.agent,
+          error: message,
+        },
       },
       { triggerTurn: true, deliverAs: "steer" },
     );
@@ -1922,20 +1921,10 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
     // Fire-and-forget: start watching in background
     watchSubagent(running, watcherAbort.signal, deps.send)
       .then((result) => {
-        deliverSubagentCompletion(running, result, deps.send, {
-          present: () => resolveResultPresentation(result, running.name),
-          extraDetails: {
-            agent: running.agent,
-            ...(result.claudeSessionId ? { claudeSessionId: result.claudeSessionId } : {}),
-          },
-          pingExtraDetails: { agent: running.agent },
-        });
+        deliverSubagentCompletion(running, result, deps.send);
       })
       .catch((err) => {
-        deliverSubagentError(running, err, deps.send, {
-          contentPrefix: `Sub-agent "${running.name}" error`,
-          extraDetails: { task: running.task },
-        });
+        deliverSubagentError(running, err, deps.send);
       });
   }
 
@@ -2024,37 +2013,17 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
       runningSubagents.set(id, running);
       writeRoster();
 
-      // Fire-and-forget watcher
-      const watcherAbort = new AbortController();
-      running.abortController = watcherAbort;
-      startWidgetRefresh();
-      startStatusRefresh();
-
-      watchSubagent(running, watcherAbort.signal, deps.send)
-        .then((result) => {
-          deliverSubagentCompletion(running, result, deps.send, {
-            present: () => {
-              const allEntries = getNewEntries(params.sessionPath, entryCountBefore);
-              const summary =
-                findLastAssistantMessage(allEntries) ??
-                (result.errorMessage
-                  ? `Subagent error: ${result.errorMessage}`
-                  : result.exitCode !== 0
-                    ? `Resumed session exited with code ${result.exitCode}`
-                    : "Resumed session exited without new output");
-              return resolveResultPresentation(
-                { ...result, summary, sessionFile: params.sessionPath },
-                running.name,
-              );
-            },
-          });
-        })
-        .catch((err) => {
-          deliverSubagentError(running, err, deps.send, { contentPrefix: "Resume error" });
-        });
+      startWatcher(running);
 
       return {
-        content: [{ type: "text", text: `Session "${name}" resumed.` }],
+        content: [
+          {
+            type: "text",
+            text: record
+              ? `Session "${name}" resumed.`
+              : `Session "${name}" resumed. No launch record was found, so the role configuration was not restored.`,
+          },
+        ],
         details: {
           id,
           name,

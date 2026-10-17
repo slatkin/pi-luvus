@@ -2525,7 +2525,7 @@ describe("subagent interruption", () => {
 
     assert.match(presentation, /failed \(exit code 130\)/);
     assert.doesNotMatch(presentation, /interrupted/);
-    assert.match(presentation, /Resume: pi --session/);
+    assert.match(presentation, /Resume: luvus_resume/);
   });
 
   it("renders a clear provider/agent error when errorMessage is set", () => {
@@ -2550,7 +2550,7 @@ describe("subagent interruption", () => {
     assert.match(presentation, /provider\/agent error — auto-retry exhausted/);
     assert.match(presentation, /Error: Anthropic 529 Overloaded after 3 retries/);
     assert.match(presentation, /luvus_resume/);
-    assert.match(presentation, /Resume: pi --session/);
+    assert.match(presentation, /Resume: luvus_resume/);
     assert.doesNotMatch(presentation, /ignored when errorMessage is present/);
   });
 });
@@ -2566,6 +2566,7 @@ describe("subagent messaging", () => {
       surface: "pane-1",
       startTime: 0,
       sessionFile: "worker.jsonl",
+      entryCountBefore: 0,
       interactive: false,
       statusState: createStatusState({ source: "pi", startTimeMs: 0 }),
       ...overrides,
@@ -2844,6 +2845,54 @@ describe("subagent messaging", () => {
       inheritsConversationContext: false,
     });
     assert.match(prompt, /You can message `parent`, `Worker` with luvus_message/);
+  });
+});
+
+describe("luvus_result renderer", () => {
+  function createTheme() {
+    return {
+      fg(_color: string, text: string) {
+        return text;
+      },
+      bg(_color: string, text: string) {
+        return text;
+      },
+      bold(text: string) {
+        return text;
+      },
+    };
+  }
+
+  it("shows the luvus_resume session line in the expanded result", () => {
+    const { api, registeredMessageRenderers } = createMockExtensionApi();
+    (subagentsModule as any).default(api);
+
+    const rendererEntry = registeredMessageRenderers.find((entry) => entry.name === "luvus_result");
+    assert.ok(rendererEntry, "expected luvus_result renderer to be registered");
+
+    const sessionFile = "/tmp/child.jsonl";
+    const rendered = rendererEntry.renderer(
+      {
+        customType: "luvus_result",
+        content:
+          `Sub-agent "Worker" completed (0m 5s).\n\nAll checks pass.\n\n` +
+          `Session: ${sessionFile}\nResume: luvus_resume ${sessionFile}`,
+        details: {
+          name: "Worker",
+          task: "run the checks",
+          agent: "worker",
+          exitCode: 0,
+          elapsed: 5,
+          sessionFile,
+        },
+      },
+      { expanded: true },
+      createTheme(),
+    );
+    const output = rendered.render(120).join("\n");
+
+    assert.match(output, /Resume: {2}luvus_resume \/tmp\/child\.jsonl/);
+    assert.doesNotMatch(output, /pi --session/);
   });
 });
 

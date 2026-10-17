@@ -148,6 +148,8 @@ interface SupervisorOptions {
   ui?: boolean;
   pollForExit?: LuvusPoll;
   onRunInPane?: (line: string) => void;
+  /** Throw on the first message that matches, to exercise the watcher error path. */
+  failSendOnce?: (message: SteerMessage) => boolean;
 }
 
 function makeSupervisor(env: TestEnv, options: SupervisorOptions = {}) {
@@ -156,9 +158,16 @@ function makeSupervisor(env: TestEnv, options: SupervisorOptions = {}) {
   const surfaces: Array<{ name: string; placement: unknown }> = [];
   const closed: string[] = [];
   const polls = createPollQueue(options.pollForExit);
+  let failedSend = false;
   let nextPane = 24;
   const supervisor = createSupervisor({
-    send: (message, sendOptions) => sent.push({ message, options: sendOptions }),
+    send: (message, sendOptions) => {
+      if (!failedSend && options.failSendOnce?.(message)) {
+        failedSend = true;
+        throw new Error("send failed");
+      }
+      sent.push({ message, options: sendOptions });
+    },
     ui: () =>
       options.ui
         ? ({
@@ -544,26 +553,32 @@ function writePiSession(file: string): void {
   );
 }
 
-describe("supervisor resume", () => {
-  function writeRecord(sessionPath: string, overrides: Partial<LaunchRecord> = {}): LaunchRecord {
-    const record: LaunchRecord = {
-      version: LAUNCH_RECORD_VERSION,
-      backend: "pi",
-      name: "Worker",
-      agent: "worker",
-      model: "test-model",
-      tools: "read,bash",
-      rolePrompt: "You are a worker.",
-      systemPromptMode: "append",
-      denyTools: ["luvus_spawn"],
-      autoExit: true,
-      interactive: false,
-      ...overrides,
-    };
-    writeLaunchRecord(getLaunchRecordFile(sessionPath), record);
-    return record;
-  }
+function appendPiSession(file: string, entries: unknown[]): void {
+  writeFileSync(file, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n", {
+    flag: "a",
+  });
+}
 
+function writeRecord(sessionPath: string, overrides: Partial<LaunchRecord> = {}): LaunchRecord {
+  const record: LaunchRecord = {
+    version: LAUNCH_RECORD_VERSION,
+    backend: "pi",
+    name: "Worker",
+    agent: "worker",
+    model: "test-model",
+    tools: "read,bash",
+    rolePrompt: "You are a worker.",
+    systemPromptMode: "append",
+    denyTools: ["luvus_spawn"],
+    autoExit: true,
+    interactive: false,
+    ...overrides,
+  };
+  writeLaunchRecord(getLaunchRecordFile(sessionPath), record);
+  return record;
+}
+
+describe("supervisor resume", () => {
   it("restores the role configuration from the launch record", async () => {
     await withHarness(async (h, env) => {
       const repoDir = join(env.dir, "repo");
@@ -686,6 +701,46 @@ describe("supervisor resume", () => {
       assert.ok(prompt.indexOf("`Reviewer`") < prompt.indexOf("Address the review findings"));
     });
   });
+
+  it("falls back to a plain pi resume when there is no launch record", async () => {
+    await withHarness(async (h, env) => {
+      const sessionPath = join(env.dir, "child.jsonl");
+      writePiSession(sessionPath);
+
+      const result = await h.supervisor.resume(
+        { sessionPath, message: "Continue the work" },
+        env.ctx,
+      );
+
+      assert.deepEqual(h.surfaces, [{ name: "Resume", placement: undefined }]);
+      assert.equal(result.details.name, "Resume");
+      assert.match(result.content[0].text, /No launch record was found/);
+      assert.match(result.content[0].text, /role configuration was not restored/);
+
+      const spec = readLaunchSpec(result.details.launchScriptFile as string);
+      assert.equal("PI_LUVUS_AGENT" in spec.env, false);
+      assert.equal("PI_DENY_TOOLS" in spec.env, false);
+      assert.equal(spec.env.PI_LUVUS_AUTO_EXIT, "1");
+    });
+  });
+
+  it("falls back when the launch record is invalid and honours autoExit false", async () => {
+    await withHarness(async (h, env) => {
+      const sessionPath = join(env.dir, "child.jsonl");
+      writePiSession(sessionPath);
+      writeFileSync(getLaunchRecordFile(sessionPath), '{"version": 1, "backend": ');
+
+      const result = await h.supervisor.resume({ sessionPath, autoExit: false }, env.ctx);
+
+      assert.deepEqual(h.surfaces, [{ name: "Resume", placement: undefined }]);
+      assert.match(result.content[0].text, /No launch record was found/);
+      assert.match(result.content[0].text, /role configuration was not restored/);
+
+      const spec = readLaunchSpec(result.details.launchScriptFile as string);
+      assert.equal("PI_LUVUS_AUTO_EXIT" in spec.env, false);
+      assert.equal(h.supervisor.running()[0].interactive, true);
+    });
+  });
 });
 
 describe("supervisor watcher", () => {
@@ -706,6 +761,8 @@ describe("supervisor watcher", () => {
         assert.deepEqual(h.closed, [running.surface]);
         assert.equal(h.sent[0].message.customType, "luvus_result");
         assert.match(h.sent[0].message.content, /Here is my plan\.\.\./);
+        assert.match(h.sent[0].message.content, /Resume: luvus_resume/);
+        assert.doesNotMatch(h.sent[0].message.content, /pi --session/);
         assert.doesNotMatch(h.sent[0].message.content, /Subagent cancelled/);
         assert.deepEqual(h.supervisor.running(), []);
       },
@@ -746,8 +803,14 @@ describe("supervisor watcher", () => {
       let nowMs = 1_000;
       Date.now = () => nowMs;
       try {
+        writeAgentFile(
+          join(env.dir, "agent", "agents"),
+          "worker",
+          "model: test-model",
+          "You are a worker.",
+        );
         const running = await h.supervisor.spawn(
-          { name: "Worker", task: "implement rows 3.x" },
+          { name: "Worker", task: "implement rows 3.x", agent: "worker" },
           env.ctx,
         );
 
@@ -775,10 +838,98 @@ describe("supervisor watcher", () => {
         assert.ok(message.content.includes(`Session: ${running.sessionFile}`));
         // No `Resume:` line — a handoff tells the parent to start a NEW subagent.
         assert.doesNotMatch(message.content, /Resume:/);
+        assert.equal(message.details?.name, "Worker");
+        assert.equal(message.details?.task, "implement rows 3.x");
+        assert.equal(message.details?.agent, "worker");
       } finally {
         Date.now = realNow;
       }
     });
+  });
+
+  it("summarises a resumed child from the entries written after the resume", async () => {
+    await withHarness(async (h, env) => {
+      const sessionPath = join(env.dir, "child.jsonl");
+      writePiSession(sessionPath);
+      writeRecord(sessionPath);
+
+      await h.supervisor.resume({ sessionPath, message: "Continue the work" }, env.ctx);
+      appendPiSession(sessionPath, [
+        {
+          type: "message",
+          id: "user-002",
+          parentId: "asst-001",
+          message: { role: "user", content: [{ type: "text", text: "Continue" }] },
+        },
+        {
+          type: "message",
+          id: "asst-002",
+          parentId: "user-002",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "The follow-up result." }],
+          },
+        },
+      ]);
+
+      h.polls.finish({ reason: "done", exitCode: 0 });
+      await waitFor(() => h.sent.length === 1, "the resumed result steer");
+
+      assert.equal(h.sent[0].message.customType, "luvus_result");
+      assert.match(h.sent[0].message.content, /The follow-up result\./);
+      assert.doesNotMatch(h.sent[0].message.content, /Here is my plan/);
+    });
+  });
+
+  it("carries the agent in a resumed child's ping details", async () => {
+    await withHarness(async (h, env) => {
+      const sessionPath = join(env.dir, "child.jsonl");
+      writePiSession(sessionPath);
+      writeRecord(sessionPath);
+
+      await h.supervisor.resume({ sessionPath, message: "Continue the work" }, env.ctx);
+      h.polls.finish({
+        reason: "ping",
+        exitCode: 0,
+        ping: { name: "Worker", message: "Need a decision" },
+      });
+      await waitFor(() => h.sent.length === 1, "the resumed ping steer");
+
+      const { message } = h.sent[0];
+      assert.equal(message.customType, "luvus_ping");
+      assert.equal(message.details?.name, "Worker");
+      assert.equal(message.details?.task, "Continue the work");
+      assert.equal(message.details?.agent, "worker");
+    });
+  });
+
+  it("carries name, task and agent in a delivery error", async () => {
+    await withHarness(
+      async (h, env) => {
+        writeAgentFile(
+          join(env.dir, "agent", "agents"),
+          "worker",
+          "model: test-model",
+          "You are a worker.",
+        );
+        const running = await h.supervisor.spawn(
+          { name: "Worker", task: "implement rows 4.x", agent: "worker" },
+          env.ctx,
+        );
+        writePiSession(running.sessionFile);
+
+        h.polls.finish({ reason: "done", exitCode: 0 });
+        await waitFor(() => h.sent.length === 1, "the error steer");
+
+        const { message } = h.sent[0];
+        assert.equal(message.customType, "luvus_result");
+        assert.match(message.content, /Sub-agent "Worker" error: send failed/);
+        assert.equal(message.details?.name, "Worker");
+        assert.equal(message.details?.task, "implement rows 4.x");
+        assert.equal(message.details?.agent, "worker");
+      },
+      { failSendOnce: (message) => message.customType === "luvus_result" },
+    );
   });
 });
 

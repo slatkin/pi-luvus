@@ -998,7 +998,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
           if (details.sessionFile) {
             contentLines.push("");
             contentLines.push(theme.fg("dim", `Session: ${details.sessionFile}`));
-            contentLines.push(theme.fg("dim", `Resume:  pi --session ${details.sessionFile}`));
+            contentLines.push(theme.fg("dim", `Resume:  luvus_resume ${details.sessionFile}`));
           }
         } else {
           // Collapsed: preview + expand hint
