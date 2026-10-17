@@ -376,30 +376,42 @@ describe("supervisor watcher", () => {
 
   it("sends one luvus_handoff steer for a handoff result", async () => {
     await withHarness(async (h, env) => {
-      await h.supervisor.spawn({ name: "Worker", task: "implement rows 3.x" }, env.ctx);
+      const realNow = Date.now;
+      let nowMs = 1_000;
+      Date.now = () => nowMs;
+      try {
+        const running = await h.supervisor.spawn(
+          { name: "Worker", task: "implement rows 3.x" },
+          env.ctx,
+        );
 
-      h.polls.finish({
-        reason: "handoff",
-        exitCode: 0,
-        handoff: { message: "Goal: X. Done: A. Left: B." },
-      });
-      await waitFor(() => h.sent.length === 1, "the handoff steer");
+        nowMs = 81_000;
+        h.polls.finish({
+          reason: "handoff",
+          exitCode: 0,
+          handoff: { message: "Goal: X. Done: A. Left: B." },
+        });
+        await waitFor(() => h.sent.length === 1, "the handoff steer");
 
-      const { message, options } = h.sent[0];
-      assert.equal(message.customType, "luvus_handoff");
-      assert.deepEqual(options, { triggerTurn: true, deliverAs: "steer" });
-      assert.match(
-        message.content,
-        /Sub-agent "Worker" handed off at the context alert \(0s\)\. The task is not complete\./,
-      );
-      assert.match(message.content, /Goal: X\. Done: A\. Left: B\./);
-      assert.match(
-        message.content,
-        /Start a new subagent with this handoff in its task\. Do not resume this session\./,
-      );
-      assert.match(message.content, /Session: /);
-      // No `Resume:` line — a handoff tells the parent to start a NEW subagent.
-      assert.doesNotMatch(message.content, /Resume:/);
+        assert.equal(h.sent.length, 1);
+        const { message, options } = h.sent[0];
+        assert.equal(message.customType, "luvus_handoff");
+        assert.deepEqual(options, { triggerTurn: true, deliverAs: "steer" });
+        assert.match(
+          message.content,
+          /Sub-agent "Worker" handed off at the context alert \(1m 20s\)\. The task is not complete\./,
+        );
+        assert.match(message.content, /Goal: X\. Done: A\. Left: B\./);
+        assert.match(
+          message.content,
+          /Start a new subagent with this handoff in its task\. Do not resume this session\./,
+        );
+        assert.ok(message.content.includes(`Session: ${running.sessionFile}`));
+        // No `Resume:` line — a handoff tells the parent to start a NEW subagent.
+        assert.doesNotMatch(message.content, /Resume:/);
+      } finally {
+        Date.now = realNow;
+      }
     });
   });
 });

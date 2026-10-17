@@ -2506,6 +2506,17 @@ describe("subagent activity snapshots", () => {
 });
 
 describe("subagent interruption", () => {
+  it("registers luvus_interrupt in the main session extension", () => {
+    const { api, registeredTools } = createMockExtensionApi();
+
+    (subagentsModule as any).default(api);
+
+    assert.equal(
+      registeredTools.some((tool) => tool.name === "luvus_interrupt"),
+      true,
+    );
+  });
+
   it("formats exit code 130 as an ordinary failure", () => {
     const testApi = (subagentsModule as any).__test__;
     const presentation = testApi.resolveResultPresentation(
