@@ -15,6 +15,7 @@
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { basename } from "node:path";
+import { isSubagentChild } from "./child-env.ts";
 
 /** Characters that cannot appear in an OSC title: C0, DEL, and C1 controls. */
 // eslint-disable-next-line no-control-regex -- these are the characters being stripped
@@ -101,9 +102,9 @@ export function __resetLiveTitleForTests__(): void {
 }
 
 /**
- * Build the live-title controller. `env` is the process environment, so the
- * subagent-child check reads `PI_LUVUS_NAME` the same way the rest of the
- * extension does.
+ * Build the live-title controller. `env` is the process environment; the
+ * subagent-child check uses `isSubagentChild` (`PI_LUVUS_SESSION`), like the
+ * rest of the extension.
  */
 export function createLiveTitleController(
   env: NodeJS.ProcessEnv = process.env,
@@ -112,7 +113,7 @@ export function createLiveTitleController(
   let firstPromptTitleSet = false;
 
   function shouldSet(ctx: ExtensionContext): boolean {
-    if (env.PI_LUVUS_NAME) return false;
+    if (isSubagentChild(env)) return false;
     const name = ctx.sessionManager.getSessionName();
     if (name !== undefined && name.trim().length > 0) return false;
     return !firstPromptTitleSet;

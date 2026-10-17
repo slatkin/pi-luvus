@@ -10,7 +10,7 @@
  *   orchestrator can wait on the pane instead of scraping the screen
  * - Appends one `handoffs.jsonl` row per context alert and per handoff exit,
  *   fire-and-forget, so the alert and handoff events can be counted later
- * - Respects PI_DENY_TOOLS for its own tools: a denied tool is not registered,
+ * - Respects the child-env denied-tool list for its own tools: a denied tool is not registered,
  *   `caller_ping` included; `luvus_done` is never denied.
  *
  * Auto-exit: with PI_LUVUS_AUTO_EXIT=1, a normal `agent_end` (no user takeover,
@@ -25,6 +25,7 @@ import { Box, Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { writeFileSync } from "node:fs";
 import { createSubagentActivityRecorder } from "./activity.ts";
+import { decodeChildEnv } from "./child-env.ts";
 import { createLuvusStatusReporter } from "./luvus-status.ts";
 import {
   alertText,
@@ -116,13 +117,6 @@ export function findLatestAssistantError(messages: any[] | undefined): SubagentE
   return null;
 }
 
-export function parseDeniedTools(rawValue: string | undefined): string[] {
-  return (rawValue ?? "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-}
-
 const ALERT_OFF_CONFIG: ContextAlertConfig = {
   enabled: false,
   threshold: { kind: "tokens", value: DEFAULT_CONTEXT_ALERT_THRESHOLD_TOKENS },
@@ -181,20 +175,24 @@ function writeHandoffLogRow(row: Omit<HandoffLogRow, "luvusSession">): void {
 }
 
 export default function (pi: ExtensionAPI) {
+  // Decode the child env once: a pi process does not change its own
+  // PI_LUVUS_* values. Every child-env reader below uses this value; the
+  // nudge settings stay direct process settings.
+  const childEnv = decodeChildEnv(process.env);
+
   let toolNames: string[] = [];
   let denied: string[] = [];
   let expanded = false;
 
   // Read subagent identity from env vars (set by parent orchestrator)
-  const subagentName = process.env.PI_LUVUS_NAME ?? "";
-  const subagentAgent = process.env.PI_LUVUS_AGENT ?? "";
-  const deniedToolsValue = process.env.PI_DENY_TOOLS;
+  const subagentName = childEnv.name ?? "";
+  const subagentAgent = childEnv.agent ?? "";
   // Parsed for the restored auto-exit path below (2026-10-02-restore-auto-exit):
   // an auto-exit agent whose turn ends normally exits itself.
-  const autoExit = process.env.PI_LUVUS_AUTO_EXIT === "1";
+  const autoExit = childEnv.autoExit;
   const recorder = createSubagentActivityRecorder({
-    runningChildId: process.env.PI_LUVUS_ID,
-    activityFile: process.env.PI_LUVUS_ACTIVITY_FILE,
+    runningChildId: childEnv.id,
+    activityFile: childEnv.activityFile,
   });
 
   // Live sidebar status for this pane. In a subagent child this is the ONLY
@@ -264,7 +262,7 @@ export default function (pi: ExtensionAPI) {
    */
   function checkContextAlert(event: unknown, ctx: unknown): void {
     if (alertFired || doneCalled || !contextAlertConfig.enabled) return;
-    if (!process.env.PI_LUVUS_SESSION) return;
+    if (!childEnv.sessionFile) return;
 
     // Error and aborted turns end the run without the steer read; a steer
     // sent for them would only land on the next prompt.
@@ -289,8 +287,8 @@ export default function (pi: ExtensionAPI) {
     writeHandoffLogRow({
       at: new Date().toISOString(),
       event: "alert",
-      child: process.env.PI_LUVUS_NAME ?? "",
-      session: process.env.PI_LUVUS_SESSION ?? "",
+      child: childEnv.name ?? "",
+      session: childEnv.sessionFile ?? "",
       tokens: usage.tokens,
       threshold: formatThresholdValue(contextAlertConfig.threshold),
     });
@@ -360,7 +358,7 @@ export default function (pi: ExtensionAPI) {
     clearNudgeTimer();
     const tools = pi.getAllTools();
     toolNames = tools.map((t) => t.name).sort();
-    denied = parseDeniedTools(deniedToolsValue);
+    denied = childEnv.denyTools;
 
     renderWidget(ctx, null);
   });
@@ -399,7 +397,7 @@ export default function (pi: ExtensionAPI) {
     // Without this the parent would only see exit code 0 and a stale
     // assistant message, mistaking the crash for a successful completion.
     const errorInfo = findLatestAssistantError(messages);
-    const sessionFile = process.env.PI_LUVUS_SESSION;
+    const sessionFile = childEnv.sessionFile;
     if (errorInfo && sessionFile) {
       statusReporter.report("blocked", errorInfo.errorMessage);
       try {
@@ -518,7 +516,7 @@ export default function (pi: ExtensionAPI) {
       message: Type.String({ description: "What you need help with." }),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const sessionFile = process.env.PI_LUVUS_SESSION;
+      const sessionFile = childEnv.sessionFile;
       if (!sessionFile) {
         throw new Error(
           "caller_ping is only available in subagent contexts. " +
@@ -531,7 +529,7 @@ export default function (pi: ExtensionAPI) {
       clearNudgeTimer();
       const exitData = {
         type: "ping" as const,
-        name: process.env.PI_LUVUS_NAME ?? "subagent",
+        name: childEnv.name ?? "subagent",
         message: params.message,
       };
       statusReporter.report("blocked", params.message);
@@ -575,7 +573,7 @@ export default function (pi: ExtensionAPI) {
           "luvus_done handoff must be a non-empty string: the handoff text a fresh agent needs to continue the task.",
         );
       }
-      const sessionFile = process.env.PI_LUVUS_SESSION;
+      const sessionFile = childEnv.sessionFile;
       recorder.subagentDone();
       doneCalled = true;
       clearNudgeTimer();
@@ -602,7 +600,7 @@ export default function (pi: ExtensionAPI) {
         writeHandoffLogRow({
           at: new Date().toISOString(),
           event: "handoff",
-          child: process.env.PI_LUVUS_NAME ?? "",
+          child: childEnv.name ?? "",
           session: sessionFile ?? "",
           tokens: typeof usage?.tokens === "number" ? usage.tokens : null,
         });

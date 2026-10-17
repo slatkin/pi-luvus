@@ -39,6 +39,7 @@ import { runSpec, type RunSpecDeps } from "./run.ts";
 import { findLastAssistantMessage, getNewEntries } from "./session.ts";
 import { loadSurfaceConfig } from "./status.ts";
 import { slugifyName } from "./slug.ts";
+import { encodeChildEnv, resolveDenyTools } from "./child-env.ts";
 
 /** Absolute path to `pi-extension/luvus`. */
 const SUBAGENTS_DIR = dirname(fileURLToPath(import.meta.url));
@@ -244,14 +245,15 @@ function startCommand(values: CliValues, deps: CliDeps, placement: SurfacePlacem
   writeFileSync(rolePromptPath, definition.body ? `${definition.body}\n` : "");
   writeFileSync(promptPath, `${briefText}\n${parentFooter(parent, env.LUVUS_PANE_ID)}\n`);
 
-  const specEnv: Record<string, string> = {
-    PI_LUVUS_NAME: name,
-    PI_LUVUS_AGENT: role,
-    PI_LUVUS_SESSION: sessionFile,
-    PI_LUVUS_ID: id,
-    PI_LUVUS_ACTIVITY_FILE: join(scratch, `${base}.activity.json`),
-  };
-  if (definition.autoExit === true) specEnv.PI_LUVUS_AUTO_EXIT = "1";
+  const specEnv = encodeChildEnv({
+    name,
+    agent: role,
+    sessionFile,
+    id,
+    activityFile: join(scratch, `${base}.activity.json`),
+    autoExit: definition.autoExit === true,
+    denyTools: [...resolveDenyTools(definition)],
+  });
 
   const spec: LaunchSpec = {
     version: LAUNCH_SPEC_VERSION,

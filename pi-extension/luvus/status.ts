@@ -8,6 +8,11 @@ import {
   type SurfacePlacement,
 } from "./luvus.ts";
 import { parseContextAlertConfig, type ContextAlertConfig } from "./context-alert.ts";
+import type {
+  ActivityReadResult,
+  SubagentActivityPhase,
+  SubagentActivityState,
+} from "./activity.ts";
 
 export const SNAPSHOT_STALLED_AFTER_MS = 60_000;
 export const DEFAULT_STATUS_LINE_LIMIT = 4;
@@ -34,7 +39,6 @@ export type SubagentStatusKind = "starting" | "active" | "waiting" | "stalled" |
 export type SubagentStatusSource = "pi" | "claude";
 export type SubagentStatusTransition = "stalled" | "recovered" | null;
 export type StatusSnapshotState = "unseen" | "present" | "missing" | "invalid" | "wrong-id";
-export type StatusActivityPhase = "starting" | "active" | "waiting" | "done";
 
 export interface StatusConfig {
   enabled: boolean;
@@ -50,7 +54,7 @@ export type StatusObservation =
       snapshot: "present";
       updatedAt: number;
       sequence: number;
-      phase: StatusActivityPhase;
+      phase: SubagentActivityPhase;
       active?: boolean;
       activeScope?: string;
       activeSince?: number;
@@ -62,6 +66,37 @@ export type StatusObservation =
       snapshot: "missing" | "invalid" | "wrong-id";
       snapshotError?: string;
     };
+
+/**
+ * Adapt an activity-file read to the observation `observeStatus` consumes.
+ * A failed read keeps its reason and error as the snapshot problem.
+ */
+export function toStatusObservation(read: ActivityReadResult): StatusObservation {
+  if (read.ok === false) return { snapshot: read.reason, snapshotError: read.error };
+
+  const activity = read.activity;
+  return {
+    snapshot: "present",
+    updatedAt: activity.updatedAt,
+    sequence: activity.sequence,
+    phase: activity.phase,
+    active: activity.phase === "active",
+    activeScope: activity.activeScope,
+    activeSince: activity.activeSince,
+    waitingSince: activity.waitingSince,
+    latestEvent: activity.latestEvent,
+    activityLabel: buildActivityLabel(activity),
+  };
+}
+
+/** Label for a live activity phase; a non-active phase has no label. */
+export function buildActivityLabel(activity: SubagentActivityState): string | undefined {
+  if (activity.phase !== "active") return undefined;
+  if (activity.activeScope === "tool") return activity.toolName ?? "tool";
+  if (activity.activeScope === "provider") return "provider";
+  if (activity.activeScope === "streaming") return "streaming";
+  return activity.activeScope;
+}
 
 export interface SubagentStatusState {
   source: SubagentStatusSource;
@@ -75,7 +110,7 @@ export interface SubagentStatusState {
   activeSinceMs: number | null;
   activeScope: string | null;
   waitingSinceMs: number | null;
-  phase: StatusActivityPhase | null;
+  phase: SubagentActivityPhase | null;
   latestEvent: string | null;
   activityLabel: string | null;
   snapshotState: StatusSnapshotState;
@@ -159,7 +194,8 @@ function snapshotProblemLabel(snapshotState: StatusSnapshotState): string | null
   return null;
 }
 
-function activityLabel(
+/** Display label for an active snapshot: explicit label, else its scope. */
+export function displayActivityLabel(
   snapshot: Pick<StatusSnapshot, "activityLabel" | "activeScope">,
 ): string | null {
   return snapshot.activityLabel ?? snapshot.activeScope;
@@ -579,7 +615,7 @@ export function advanceStatusState(
 }
 
 function formatActiveDetail(snapshot: StatusSnapshot): string {
-  const label = activityLabel(snapshot);
+  const label = displayActivityLabel(snapshot);
   if (!label) return "active";
   const duration = snapshot.activeDurationText ? ` ${snapshot.activeDurationText}` : "";
   return `active (${label}${duration})`;
