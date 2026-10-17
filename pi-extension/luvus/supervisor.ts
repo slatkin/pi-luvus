@@ -23,6 +23,7 @@ import {
   readScreen,
   runInPane,
   sendEscape,
+  type PollResult,
   type SurfacePlacement,
 } from "./luvus.ts";
 import { UhpEventStream } from "./uhp-events.ts";
@@ -383,15 +384,18 @@ export function resolveEffectiveSessionMode(
   return agentDefs?.sessionMode ?? "standalone";
 }
 
-export function resolveLaunchBehavior(
-  params: Static<typeof SubagentParams>,
-  agentDefs: AgentDefaults | null,
-): {
+/** The launch modes resolved once for a spawn or resume. */
+export interface LaunchBehavior {
   sessionMode: SubagentSessionMode;
   seededSessionMode: "lineage-only" | "fork" | null;
   inheritsConversationContext: boolean;
   taskDelivery: "direct" | "artifact";
-} {
+}
+
+export function resolveLaunchBehavior(
+  params: Static<typeof SubagentParams>,
+  agentDefs: AgentDefaults | null,
+): LaunchBehavior {
   const sessionMode = resolveEffectiveSessionMode(params, agentDefs);
   const inheritsConversationContext = sessionMode === "fork";
   return {
@@ -783,7 +787,8 @@ export function activityLabel(activity: SubagentActivityState): string | undefin
 }
 
 export function observeRunningSubagent(running: RunningSubagent, observedAt = Date.now()) {
-  if (running.cli === "claude") return;
+  // A backend without an activity snapshot has nothing to observe.
+  if (!backendFor(running).observes) return;
 
   const activityFile = running.activityFile;
   const read: ActivityReadResult = activityFile
@@ -857,7 +862,9 @@ function runIdleWatchdog(
   promptPane: (surface: string, text: string) => unknown,
   now = Date.now(),
 ): void {
-  if (running.cli === "claude") return;
+  // Without activity snapshots the watchdog cannot tell a quiet child from a
+  // gone one, so it only runs for an observing backend.
+  if (!backendFor(running).observes) return;
   const state = (running.idleWatch ??= { nudges: 0 });
 
   const goneAction = decideGoneAction({
@@ -928,6 +935,372 @@ export function requestSubagentInterrupt(
         `${error?.message ?? String(error)}`,
     };
   }
+}
+
+/** Backend keys of the table below; a launch record stores one (design D3). */
+type BackendName = "pi" | "claude";
+
+/** One spawn resolution plus its per-run binding, so a backend builds one run. */
+export interface BackendLaunchRequest {
+  params: Static<typeof SubagentParams>;
+  agentDefs: AgentDefaults | null;
+  launchBehavior: LaunchBehavior;
+  /** Target cwd for the child, when the spawn or its agent named one. */
+  effectiveCwd: string | null;
+  effectiveModel?: string;
+  effectiveThinking?: string;
+  effectiveTools?: string;
+  effectiveSkills?: string;
+  effectiveInteractive: boolean;
+  /** The target cwd's `.pi/agent` directory, when it has one. */
+  localAgentDir: string | null;
+  artifactDir: string;
+  denySet: Set<string>;
+  /** Names the child can reach with `luvus_message` at spawn time. */
+  siblingNames: string[];
+  parentRosterFile?: string;
+  /** Values that change for every run; the record does not keep them (design D3). */
+  run: {
+    id: string;
+    surface: string;
+    startTime: number;
+    /** Child session file (pi), or the record-adjacent path (Claude Code). */
+    sessionFile: string;
+    launchScriptFile: string;
+    activityFile: string;
+  };
+}
+
+/** What a backend builds for one run: its launch spec and its running entry. */
+export interface BackendLaunch {
+  spec: LaunchSpec;
+  running: RunningSubagent;
+}
+
+/** A backend's refusal of an interrupt: the tool result to return instead. */
+interface BackendInterruptRefusal {
+  content: Array<{ type: "text"; text: string }>;
+  details: Record<string, unknown>;
+}
+
+/** The parts of a run's result that the backend's exit path decides. */
+interface BackendExtractedResult {
+  summary: string;
+  /** Pi's session file; a Claude Code run has none. */
+  sessionFile?: string;
+  ping?: PollResult["ping"];
+  handoff?: PollResult["handoff"];
+  errorMessage?: string;
+}
+
+/** What a backend does before its pane closes; pi has nothing to do. */
+type BackendAfterExit = (running: RunningSubagent) => Pick<SubagentResult, "claudeSessionId">;
+
+/** One backend's behavior. The supervisor reads this table, not the backend name. */
+interface SubagentBackend {
+  /** True when the backend publishes an activity snapshot that status reads. */
+  observes: boolean;
+  buildLaunch(request: BackendLaunchRequest): BackendLaunch;
+  /** Null when Escape interrupts this backend; otherwise the refusal result. */
+  interrupt(running: RunningSubagent): BackendInterruptRefusal | null;
+  extractResult(
+    running: RunningSubagent,
+    poll: Pick<PollResult, "exitCode" | "errorMessage" | "ping" | "handoff">,
+    readScreen: (surface: string, lines: number) => string,
+  ): BackendExtractedResult;
+  afterExit: BackendAfterExit;
+}
+
+function buildPiLaunch(request: BackendLaunchRequest): BackendLaunch {
+  const { params, agentDefs, launchBehavior, run } = request;
+
+  // Only full-context fork mode inherits prior conversation state.
+  // Blank-session modes need the wrapper instructions and artifact-backed handoff.
+  const identity = agentDefs?.body ?? params.systemPrompt ?? null;
+  const systemPromptMode = agentDefs?.systemPromptMode;
+  const identityInSystemPrompt = systemPromptMode && identity;
+  const roleBlock = identity && !identityInSystemPrompt ? `\n\n${identity}` : "";
+  const fullTask = buildSubagentTaskPrompt({
+    task: params.task,
+    roleBlock,
+    modeHint: resolveModeHint(agentDefs?.autoExit),
+    summaryInstruction: agentDefs?.autoExit
+      ? "Your FINAL assistant message should summarize what you accomplished. Put the verdict or outcome first. Keep it short: results and findings, not your process. Follow your role's report format if it sets one."
+      : "Your FINAL assistant message (before calling luvus_done or before the user exits) should summarize what you accomplished. Put the verdict or outcome first. Keep it short: results and findings, not your process. Follow your role's report format if it sets one.",
+    messagingHint: buildLaunchMessagingHint(request.siblingNames),
+    inheritsConversationContext: launchBehavior.inheritsConversationContext,
+  });
+
+  // Build pi argv (no shell: every value stays exactly one argument).
+  const piArgs: string[] = ["--session", run.sessionFile];
+
+  const subagentDonePath = join(SUBAGENTS_DIR, "luvus-done.ts");
+  piArgs.push("-e", subagentDonePath);
+
+  if (request.effectiveModel) {
+    const model = request.effectiveThinking
+      ? `${request.effectiveModel}:${request.effectiveThinking}`
+      : request.effectiveModel;
+    piArgs.push("--model", model);
+  }
+
+  // Pass agent body as system prompt via file to avoid shell escaping issues
+  // with multiline content. Pi's --append-system-prompt and --system-prompt
+  // auto-detect file paths and read their contents.
+  if (identityInSystemPrompt && identity) {
+    const flag = systemPromptMode === "replace" ? "--system-prompt" : "--append-system-prompt";
+    const spTimestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const spSafeName = slugifyName(params.name, { hyphenate: false });
+    const syspromptPath = join(
+      request.artifactDir,
+      `context/${spSafeName || "subagent"}-sysprompt-${spTimestamp}.md`,
+    );
+    mkdirSync(dirname(syspromptPath), { recursive: true });
+    writeFileSync(syspromptPath, identity, "utf8");
+    piArgs.push(flag, syspromptPath);
+  }
+
+  const toolAllowlist = buildSubagentToolAllowlist(request.effectiveTools);
+  if (toolAllowlist) {
+    piArgs.push("--tools", toolAllowlist);
+  }
+
+  // Env: denied tools + subagent identity + config dir propagation.
+  // If the target cwd has its own .pi/agent/, that wins; else propagate the
+  // current/global agent dir.
+  const codingAgentDir =
+    request.localAgentDir && existsSync(request.localAgentDir)
+      ? request.localAgentDir
+      : process.env.PI_CODING_AGENT_DIR;
+  const spawnEnv = buildSpawnEnvParts({
+    name: params.name,
+    agent: params.agent,
+    autoExit: agentDefs?.autoExit,
+    subagentSessionFile: run.sessionFile,
+    id: run.id,
+    activityFile: run.activityFile,
+    surface: run.surface,
+    codingAgentDir,
+    denySet: request.denySet,
+    parentRosterFile: request.parentRosterFile,
+  });
+
+  // Pass task and skill prompts to the sub-agent.
+  // Only full-context fork mode gets a direct task argument because it already
+  // inherits the parent conversation. Blank-session modes use artifact-backed
+  // handoff so the wrapper instructions arrive as the initial user message.
+  let taskArg: string;
+  if (launchBehavior.taskDelivery === "direct") {
+    taskArg = fullTask;
+  } else {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const safeName = slugifyName(params.name, { hyphenate: false });
+    const artifactName = `context/${safeName || "subagent"}-${timestamp}.md`;
+    const artifactPath = join(request.artifactDir, artifactName);
+    mkdirSync(dirname(artifactPath), { recursive: true });
+    writeFileSync(artifactPath, fullTask, "utf8");
+    taskArg = `@${artifactPath}`;
+  }
+
+  for (const promptArg of buildPiPromptArgs({
+    effectiveSkills: request.effectiveSkills,
+    taskDelivery: launchBehavior.taskDelivery,
+    taskArg,
+  })) {
+    piArgs.push(promptArg);
+  }
+
+  return {
+    spec: {
+      version: LAUNCH_SPEC_VERSION,
+      name: params.name,
+      ...(request.effectiveCwd ? { cwd: request.effectiveCwd } : {}),
+      env: spawnEnv,
+      command: "pi",
+      args: piArgs,
+      sessionFile: run.sessionFile,
+      title: buildPaneTitle(params.name, params.task),
+    },
+    running: {
+      id: run.id,
+      name: params.name,
+      task: params.task,
+      agent: params.agent,
+      surface: run.surface,
+      startTime: run.startTime,
+      sessionFile: run.sessionFile,
+      launchScriptFile: run.launchScriptFile,
+      activityFile: run.activityFile,
+      interactive: request.effectiveInteractive,
+      statusState: createStatusState({
+        source: "pi",
+        startTimeMs: run.startTime,
+      }),
+    },
+  };
+}
+
+function buildClaudeLaunch(request: BackendLaunchRequest): BackendLaunch {
+  const { params, agentDefs, run } = request;
+  const sentinelFile = join(tmpdir(), `pi-claude-${run.id}-done`);
+  const pluginDir = join(SUBAGENTS_DIR, "plugin");
+
+  const claudeArgs: string[] = ["--dangerously-skip-permissions"];
+
+  if (existsSync(pluginDir)) {
+    claudeArgs.push("--plugin-dir", pluginDir);
+  }
+
+  if (request.effectiveModel) {
+    claudeArgs.push("--model", request.effectiveModel);
+  }
+
+  const systemPrompt = params.systemPrompt ?? agentDefs?.body;
+  if (systemPrompt) {
+    claudeArgs.push("--append-system-prompt", systemPrompt);
+  }
+
+  if (params.resumeSessionId) {
+    claudeArgs.push("--resume", params.resumeSessionId);
+  }
+
+  // Always pass the task as the prompt — even for resumed sessions,
+  // the caller's task is the follow-up instruction.
+  claudeArgs.push(params.task);
+
+  return {
+    spec: {
+      version: LAUNCH_SPEC_VERSION,
+      name: params.name,
+      ...(request.effectiveCwd ? { cwd: request.effectiveCwd } : {}),
+      env: { PI_CLAUDE_SENTINEL: sentinelFile },
+      command: "claude",
+      args: claudeArgs,
+      sessionFile: run.sessionFile,
+      title: buildPaneTitle(params.name, params.task),
+    },
+    running: {
+      id: run.id,
+      name: params.name,
+      task: params.task,
+      agent: params.agent,
+      surface: run.surface,
+      startTime: run.startTime,
+      sessionFile: run.sessionFile,
+      launchScriptFile: run.launchScriptFile,
+      cli: "claude",
+      sentinelFile,
+      interactive: request.effectiveInteractive,
+      statusState: createStatusState({
+        source: "claude",
+        startTimeMs: run.startTime,
+      }),
+    },
+  };
+}
+
+function extractPiResult(
+  running: RunningSubagent,
+  poll: Pick<PollResult, "exitCode" | "errorMessage" | "ping" | "handoff">,
+): BackendExtractedResult {
+  const fallback = poll.errorMessage
+    ? `Subagent error: ${poll.errorMessage}`
+    : poll.exitCode !== 0
+      ? `Sub-agent exited with code ${poll.exitCode}`
+      : "Sub-agent exited without output";
+  const summary = existsSync(running.sessionFile)
+    ? (findLastAssistantMessage(getNewEntries(running.sessionFile, 0)) ?? fallback)
+    : fallback;
+  return {
+    summary,
+    sessionFile: running.sessionFile,
+    ping: poll.ping,
+    handoff: poll.handoff,
+    ...(poll.errorMessage ? { errorMessage: poll.errorMessage } : {}),
+  };
+}
+
+function extractClaudeResult(
+  running: RunningSubagent,
+  poll: Pick<PollResult, "exitCode" | "errorMessage">,
+  readScreen: (surface: string, lines: number) => string,
+): BackendExtractedResult {
+  let summary = "";
+
+  if (running.sentinelFile) {
+    try {
+      summary = readFileSync(running.sentinelFile, "utf-8").trim();
+    } catch {
+      // Fall through to the screen read below.
+    }
+  }
+
+  if (!summary) {
+    summary = readScreen(running.surface, 200)
+      .replace(/__SUBAGENT_DONE_\d+__/, "")
+      .trimEnd()
+      .slice(-SCREEN_SUMMARY_CHARS);
+  }
+
+  if (!summary) {
+    summary =
+      poll.exitCode !== 0
+        ? `Claude Code exited with code ${poll.exitCode}`
+        : "Claude Code exited without output";
+  }
+
+  return { summary };
+}
+
+function copyClaudeTranscript(running: RunningSubagent): Pick<SubagentResult, "claudeSessionId"> {
+  if (!running.sentinelFile) return {};
+  const sessionId = copyClaudeSession(running.sentinelFile);
+  try {
+    unlinkSync(running.sentinelFile);
+  } catch {
+    // Best effort: the sentinel may already be gone.
+  }
+  try {
+    unlinkSync(running.sentinelFile + ".transcript");
+  } catch {
+    // Best effort: the transcript may already be gone.
+  }
+  return sessionId ? { claudeSessionId: sessionId } : {};
+}
+
+function refuseClaudeInterrupt(running: RunningSubagent): BackendInterruptRefusal {
+  return {
+    content: [
+      {
+        type: "text",
+        text: "Turn-only Escape interrupt is currently supported only for Pi-backed subagents. Claude-backed semantics have not been verified yet.",
+      },
+    ],
+    details: { error: "claude interrupt unsupported", id: running.id, name: running.name },
+  };
+}
+
+/** The backend table (design D4): one place decides each backend's differences. */
+const BACKENDS: Record<BackendName, SubagentBackend> = {
+  pi: {
+    observes: true,
+    buildLaunch: buildPiLaunch,
+    interrupt: () => null,
+    extractResult: extractPiResult,
+    afterExit: () => ({}),
+  },
+  claude: {
+    observes: false,
+    buildLaunch: buildClaudeLaunch,
+    interrupt: refuseClaudeInterrupt,
+    extractResult: extractClaudeResult,
+    afterExit: copyClaudeTranscript,
+  },
+};
+
+/** The table lookup every backend check in the supervisor goes through. */
+function backendFor(owner: { cli?: string } | null | undefined): SubagentBackend {
+  return owner?.cli === "claude" ? BACKENDS.claude : BACKENDS.pi;
 }
 
 /**
@@ -1043,11 +1416,12 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
       const agentTag = agent.agent ? ` (${agent.agent})` : "";
       const left = ` ${elapsed}  ${agent.name}${agentTag} `;
       const snapshot = classifyStatus(agent.statusState, Date.now());
+      // A backend without a status feed has no starting phase to report.
       const right = deps.statusConfig.enabled
         ? formatWidgetRightLabel(snapshot)
-        : agent.cli === "claude"
-          ? " running… "
-          : " starting… ";
+        : backendFor(agent).observes
+          ? " starting… "
+          : " running… ";
 
       lines.push(borderLine(left, right, width));
     }
@@ -1154,17 +1528,8 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
     }
 
     const running = resolved.running;
-    if (running.cli === "claude") {
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: "Turn-only Escape interrupt is currently supported only for Pi-backed subagents. Claude-backed semantics have not been verified yet.",
-          },
-        ],
-        details: { error: "claude interrupt unsupported", id: running.id, name: running.name },
-      };
-    }
+    const refusal = backendFor(running).interrupt(running);
+    if (refusal) return refusal;
 
     const now = Date.now();
     observeRunningSubagent(running, now);
@@ -1262,199 +1627,36 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
 
     const activityFile = getSubagentActivityFile(artifactDir, id);
     mkdirSync(dirname(activityFile), { recursive: true });
-    const { inheritsConversationContext } = launchBehavior;
-
-    // Build the task message
-    // Only full-context fork mode inherits prior conversation state.
-    // Blank-session modes need the wrapper instructions and artifact-backed handoff.
-    const modeHint = resolveModeHint(agentDefs?.autoExit);
-    const summaryInstruction = agentDefs?.autoExit
-      ? "Your FINAL assistant message should summarize what you accomplished. Put the verdict or outcome first. Keep it short: results and findings, not your process. Follow your role's report format if it sets one."
-      : "Your FINAL assistant message (before calling luvus_done or before the user exits) should summarize what you accomplished. Put the verdict or outcome first. Keep it short: results and findings, not your process. Follow your role's report format if it sets one.";
     const denySet = resolveDenyTools(agentDefs);
-    const identity = agentDefs?.body ?? params.systemPrompt ?? null;
-    const systemPromptMode = agentDefs?.systemPromptMode;
-    const identityInSystemPrompt = systemPromptMode && identity;
-    const roleBlock = identity && !identityInSystemPrompt ? `\n\n${identity}` : "";
-    const siblingNames = Array.from(runningSubagents.values(), (running) => running.name);
-    const fullTask = buildSubagentTaskPrompt({
-      task: params.task,
-      roleBlock,
-      modeHint,
-      summaryInstruction,
-      messagingHint: buildLaunchMessagingHint(siblingNames),
-      inheritsConversationContext,
-    });
-    // ── Claude Code CLI path ──
-    if (agentDefs?.cli === "claude") {
-      const sentinelFile = join(tmpdir(), `pi-claude-${id}-done`);
-      const pluginDir = join(SUBAGENTS_DIR, "plugin");
 
-      const claudeArgs: string[] = ["--dangerously-skip-permissions"];
-
-      if (existsSync(pluginDir)) {
-        claudeArgs.push("--plugin-dir", pluginDir);
-      }
-
-      if (effectiveModel) {
-        claudeArgs.push("--model", effectiveModel);
-      }
-
-      const sp = params.systemPrompt ?? agentDefs.body;
-      if (sp) {
-        claudeArgs.push("--append-system-prompt", sp);
-      }
-
-      if (params.resumeSessionId) {
-        claudeArgs.push("--resume", params.resumeSessionId);
-      }
-
-      // Always pass the task as the prompt — even for resumed sessions,
-      // the caller's task is the follow-up instruction.
-      claudeArgs.push(params.task);
-
-      const spec: LaunchSpec = {
-        version: LAUNCH_SPEC_VERSION,
-        name: params.name,
-        ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
-        env: { PI_CLAUDE_SENTINEL: sentinelFile },
-        command: "claude",
-        args: claudeArgs,
-        sessionFile: subagentSessionFile,
-        title: buildPaneTitle(params.name, params.task),
-      };
-      writeLaunchSpec(launchScriptFile, spec);
-      deps.luvus.runInPane(surface, paneLine);
-
-      const running: RunningSubagent = {
+    const backend = backendFor(agentDefs);
+    const { spec, running } = backend.buildLaunch({
+      params,
+      agentDefs,
+      launchBehavior,
+      effectiveCwd,
+      effectiveModel,
+      effectiveThinking,
+      effectiveTools,
+      effectiveSkills,
+      effectiveInteractive,
+      localAgentDir,
+      artifactDir,
+      denySet,
+      siblingNames: Array.from(runningSubagents.values(), (agent) => agent.name),
+      parentRosterFile: rosterContext?.file,
+      run: {
         id,
-        name: params.name,
-        task: params.task,
-        agent: params.agent,
         surface,
         startTime,
         sessionFile: subagentSessionFile,
         launchScriptFile,
-        cli: "claude",
-        sentinelFile,
-        interactive: effectiveInteractive,
-        statusState: createStatusState({
-          source: "claude",
-          startTimeMs: startTime,
-        }),
-      };
-
-      runningSubagents.set(id, running);
-      writeRoster();
-      return running;
-    }
-
-    // ── Pi CLI path ──
-
-    // Build pi argv (no shell: every value stays exactly one argument).
-    const piArgs: string[] = ["--session", subagentSessionFile];
-
-    const subagentDonePath = join(SUBAGENTS_DIR, "luvus-done.ts");
-    piArgs.push("-e", subagentDonePath);
-
-    if (effectiveModel) {
-      const model = effectiveThinking ? `${effectiveModel}:${effectiveThinking}` : effectiveModel;
-      piArgs.push("--model", model);
-    }
-
-    // Pass agent body as system prompt via file to avoid shell escaping issues
-    // with multiline content. Pi's --append-system-prompt and --system-prompt
-    // auto-detect file paths and read their contents.
-    if (identityInSystemPrompt && identity) {
-      const flag = systemPromptMode === "replace" ? "--system-prompt" : "--append-system-prompt";
-      const spTimestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-      const spSafeName = slugifyName(params.name, { hyphenate: false });
-      const syspromptPath = join(
-        artifactDir,
-        `context/${spSafeName || "subagent"}-sysprompt-${spTimestamp}.md`,
-      );
-      mkdirSync(dirname(syspromptPath), { recursive: true });
-      writeFileSync(syspromptPath, identity, "utf8");
-      piArgs.push(flag, syspromptPath);
-    }
-
-    const toolAllowlist = buildSubagentToolAllowlist(effectiveTools);
-    if (toolAllowlist) {
-      piArgs.push("--tools", toolAllowlist);
-    }
-
-    // Env: denied tools + subagent identity + config dir propagation.
-    // If the target cwd has its own .pi/agent/, that wins; else propagate the
-    // current/global agent dir.
-    const codingAgentDir =
-      localAgentDir && existsSync(localAgentDir) ? localAgentDir : process.env.PI_CODING_AGENT_DIR;
-    const spawnEnv = buildSpawnEnvParts({
-      name: params.name,
-      agent: params.agent,
-      autoExit: agentDefs?.autoExit,
-      subagentSessionFile,
-      id,
-      activityFile,
-      surface,
-      codingAgentDir,
-      denySet,
-      parentRosterFile: rosterContext?.file,
+        activityFile,
+      },
     });
 
-    // Pass task and skill prompts to the sub-agent.
-    // Only full-context fork mode gets a direct task argument because it already
-    // inherits the parent conversation. Blank-session modes use artifact-backed
-    // handoff so the wrapper instructions arrive as the initial user message.
-    let taskArg: string;
-    if (launchBehavior.taskDelivery === "direct") {
-      taskArg = fullTask;
-    } else {
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-      const safeName = slugifyName(params.name, { hyphenate: false });
-      const artifactName = `context/${safeName || "subagent"}-${timestamp}.md`;
-      const artifactPath = join(artifactDir, artifactName);
-      mkdirSync(dirname(artifactPath), { recursive: true });
-      writeFileSync(artifactPath, fullTask, "utf8");
-      taskArg = `@${artifactPath}`;
-    }
-
-    for (const promptArg of buildPiPromptArgs({
-      effectiveSkills,
-      taskDelivery: launchBehavior.taskDelivery,
-      taskArg,
-    })) {
-      piArgs.push(promptArg);
-    }
-
-    const spec: LaunchSpec = {
-      version: LAUNCH_SPEC_VERSION,
-      name: params.name,
-      ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
-      env: spawnEnv,
-      command: "pi",
-      args: piArgs,
-      sessionFile: subagentSessionFile,
-      title: buildPaneTitle(params.name, params.task),
-    };
     writeLaunchSpec(launchScriptFile, spec);
     deps.luvus.runInPane(surface, paneLine);
-
-    const running: RunningSubagent = {
-      id,
-      name: params.name,
-      task: params.task,
-      agent: params.agent,
-      surface,
-      startTime,
-      sessionFile: subagentSessionFile,
-      launchScriptFile,
-      activityFile,
-      interactive: effectiveInteractive,
-      statusState: createStatusState({
-        source: "pi",
-        startTimeMs: startTime,
-      }),
-    };
 
     runningSubagents.set(id, running);
     writeRoster();
@@ -1513,85 +1715,9 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
 
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
 
-      if (running.cli === "claude") {
-        // Claude Code result extraction
-        let summary = "";
-
-        if (running.sentinelFile) {
-          try {
-            summary = readFileSync(running.sentinelFile, "utf-8").trim();
-          } catch {
-            // Fall through to the screen read below.
-          }
-        }
-
-        if (!summary) {
-          summary = deps.luvus
-            .readScreen(surface, 200)
-            .replace(/__SUBAGENT_DONE_\d+__/, "")
-            .trimEnd()
-            .slice(-SCREEN_SUMMARY_CHARS);
-        }
-
-        if (!summary) {
-          summary =
-            result.exitCode !== 0
-              ? `Claude Code exited with code ${result.exitCode}`
-              : "Claude Code exited without output";
-        }
-
-        // Copy Claude session transcript
-        let sessionId: string | null = null;
-        if (running.sentinelFile) {
-          sessionId = copyClaudeSession(running.sentinelFile);
-          try {
-            unlinkSync(running.sentinelFile);
-          } catch {
-            // Best effort: the sentinel may already be gone.
-          }
-          try {
-            unlinkSync(running.sentinelFile + ".transcript");
-          } catch {
-            // Best effort: the transcript may already be gone.
-          }
-        }
-
-        try {
-          deps.luvus.closeSurface(surface);
-        } catch {
-          // The pane may already be gone (closed by hand); the sidecar result stands.
-        }
-        runningSubagents.delete(running.id);
-        writeRoster();
-
-        return {
-          name,
-          task,
-          summary,
-          exitCode: result.exitCode,
-          elapsed,
-          ...(sessionId ? { claudeSessionId: sessionId } : {}),
-        };
-      }
-
-      // Pi subagent result extraction
-      let summary: string;
-      if (existsSync(sessionFile)) {
-        const allEntries = getNewEntries(sessionFile, 0);
-        summary =
-          findLastAssistantMessage(allEntries) ??
-          (result.errorMessage
-            ? `Subagent error: ${result.errorMessage}`
-            : result.exitCode !== 0
-              ? `Sub-agent exited with code ${result.exitCode}`
-              : "Sub-agent exited without output");
-      } else {
-        summary = result.errorMessage
-          ? `Subagent error: ${result.errorMessage}`
-          : result.exitCode !== 0
-            ? `Sub-agent exited with code ${result.exitCode}`
-            : "Sub-agent exited without output";
-      }
+      const backend = backendFor(running);
+      const extracted = backend.extractResult(running, result, deps.luvus.readScreen);
+      const afterExit = backend.afterExit(running);
 
       try {
         deps.luvus.closeSurface(surface);
@@ -1604,13 +1730,10 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
       return {
         name,
         task,
-        summary,
-        sessionFile,
         exitCode: result.exitCode,
         elapsed,
-        ping: result.ping,
-        handoff: result.handoff,
-        ...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
+        ...extracted,
+        ...(afterExit.claudeSessionId ? { claudeSessionId: afterExit.claudeSessionId } : {}),
       };
     } catch (err: any) {
       try {
