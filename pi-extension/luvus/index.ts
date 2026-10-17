@@ -447,7 +447,8 @@ export default function subagentsExtension(pi: ExtensionAPI) {
   activePi = pi;
 
   // Live sidebar status for this pane. A subagent child does NOT register it:
-  // luvus-done.ts owns the child's reporter (see isSubagentChild).
+  // luvus-done.ts owns the child's reporter (the child marker is decoded in
+  // child-env.ts).
   if (childEnv.sessionFile === undefined) createLuvusStatusReporter().register(pi);
 
   // One Luvus notification when a turn ends in an unfocused parent pane.

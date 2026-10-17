@@ -1,11 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import {
   decodeChildEnv,
   encodeChildEnv,
   isSubagentChild,
   type ChildEnv,
 } from "../pi-extension/luvus/child-env.ts";
+import { buildSpawnEnvParts, resolveDenyTools } from "../pi-extension/luvus/supervisor.ts";
+import subagentsExtension from "../pi-extension/luvus/index.ts";
+import subagentDoneExtension from "../pi-extension/luvus/luvus-done.ts";
+import { __setLuvusExecForTests__ } from "../pi-extension/luvus/luvus.ts";
 
 test("round-trips a full ChildEnv", () => {
   const full: ChildEnv = {
@@ -58,4 +65,81 @@ test("isSubagentChild is true only when PI_LUVUS_SESSION is set", () => {
   assert.equal(isSubagentChild({ PI_LUVUS_SESSION: "" }), false);
   assert.equal(isSubagentChild({ PI_LUVUS_NAME: "child" }), false);
   assert.equal(isSubagentChild({}), false);
+});
+
+/** Just enough of the extension API for `index.ts` and `luvus-done.ts`. */
+function makeMockPi() {
+  const registeredTools: Array<any> = [];
+  return {
+    registeredTools,
+    api: {
+      on() {},
+      registerTool(tool: any) {
+        registeredTools.push(tool);
+      },
+      registerCommand() {},
+      registerMessageRenderer() {},
+      registerShortcut() {},
+      sendMessage() {},
+      sendUserMessage() {},
+      getAllTools() {
+        return [];
+      },
+    } as any,
+  };
+}
+
+test("a spawned child env registers as a child with spawning tools denied", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "child-env-pair-"));
+  const sessionFile = join(dir, "child.jsonl");
+  const denied = resolveDenyTools({ spawning: false });
+  const spawnEnv = buildSpawnEnvParts({
+    name: "scout",
+    agent: "scout",
+    autoExit: true,
+    subagentSessionFile: sessionFile,
+    id: "id-1",
+    activityFile: join(dir, "activity.json"),
+    surface: "surface-1",
+    codingAgentDir: dir,
+    denySet: denied,
+    parentRosterFile: join(dir, "roster.json"),
+  });
+  const testEnv: Record<string, string> = {
+    ...spawnEnv,
+    LUVUS_ENV: "1",
+    LUVUS_BIN_PATH: "/bin/luvus",
+    LUVUS_PANE_ID: "7",
+  };
+  const saved = new Map(Object.keys(testEnv).map((key) => [key, process.env[key]]));
+  for (const [key, value] of Object.entries(testEnv)) process.env[key] = value;
+
+  const { api, registeredTools } = makeMockPi();
+  __setLuvusExecForTests__(async () => JSON.stringify({ result: {} }));
+  try {
+    subagentDoneExtension(api);
+    subagentsExtension(api);
+
+    assert.equal(isSubagentChild(process.env), true);
+
+    const deniedNames = [...denied].sort();
+    assert.deepEqual(decodeChildEnv(process.env).denyTools.sort(), deniedNames);
+
+    const toolNames = registeredTools.map((tool) => tool.name);
+    for (const name of deniedNames) assert.equal(toolNames.includes(name), false, name);
+
+    const messageTool = registeredTools.find((tool) => tool.name === "luvus_message");
+    assert.ok(messageTool, "expected luvus_message to be registered");
+    const result = await messageTool.execute("call-1", { to: "parent", message: "hello" });
+    assert.equal(result.details?.relation, "parent");
+    const written = readFileSync(`${sessionFile}.msg`, "utf8").trim();
+    assert.match(written, /hello/);
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    __setLuvusExecForTests__(null);
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

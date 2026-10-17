@@ -72,7 +72,7 @@ import {
   type ActivityReadResult,
   type SubagentActivityState,
 } from "./activity.ts";
-import { encodeChildEnv, resolveDenyTools } from "./child-env.ts";
+import { decodeChildEnv, encodeChildEnv, resolveDenyTools } from "./child-env.ts";
 import { capSummary, SCREEN_SUMMARY_CHARS } from "./report-cap.ts";
 import {
   IDLE_NUDGE_TEXT,
@@ -1370,7 +1370,7 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
         getArtifactDir(ctx.sessionManager.getSessionDir(), ctx.sessionManager.getSessionId()),
       ),
       parentPane: process.env.LUVUS_PANE_ID ?? "",
-      parentName: process.env.PI_LUVUS_NAME ?? "parent",
+      parentName: decodeChildEnv(process.env).name ?? "parent",
     };
   }
 
