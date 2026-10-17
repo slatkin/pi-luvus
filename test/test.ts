@@ -4254,20 +4254,28 @@ describe("subagent child status ownership", () => {
 
   function makeRecordingPi() {
     const handlers = new Map<string, Array<(data?: unknown, ctx?: unknown) => void>>();
+    const registeredTools: Array<any> = [];
+    const sentMessages: Array<any> = [];
     return {
       fire(event: string, data?: unknown, ctx?: unknown) {
         for (const fn of handlers.get(event) ?? []) fn(data, ctx);
       },
+      registeredTools,
+      sentMessages,
       pi: {
         on(event: string, fn: (data?: unknown, ctx?: unknown) => void) {
           handlers.set(event, [...(handlers.get(event) ?? []), fn]);
         },
-        registerTool() {},
+        registerTool(tool: any) {
+          registeredTools.push(tool);
+        },
         registerCommand() {},
         registerMessageRenderer() {},
         registerShortcut() {},
         sendUserMessage() {},
-        sendMessage() {},
+        sendMessage(message: any, options?: any) {
+          sentMessages.push({ message, options });
+        },
         getAllTools() {
           return [];
         },
@@ -4366,5 +4374,88 @@ describe("subagent child status ownership", () => {
     // the child it launched is still starting.
     target.fire("session_start", undefined, CTX);
     assert.equal(subagentsModule.__test__.getModuleAbortController().signal.aborted, false);
+  });
+
+  it("spawns through the current supervisor after a session restart", async () => {
+    await withTempDir(async (dir) => {
+      const calls: string[][] = [];
+      __setLuvusExecForTests__((args) => {
+        calls.push(args);
+        if (args[0] === "pane" && args[1] === "split") {
+          return '{"id":"1","result":{"pane":"24","revision":1,"type":"pane","tab":"1","workspace":"2"}}';
+        }
+        return '{"id":"1","result":{"revision":1,"type":"ok"}}';
+      });
+      const saved: Array<[string, string | undefined]> = [
+        ["PI_CODING_AGENT_DIR", process.env.PI_CODING_AGENT_DIR],
+        ["PI_LUVUS_SHELL_READY_DELAY_MS", process.env.PI_LUVUS_SHELL_READY_DELAY_MS],
+        ["LUVUS_ENV", process.env.LUVUS_ENV],
+        ["LUVUS_BIN_PATH", process.env.LUVUS_BIN_PATH],
+        ["LUVUS_PANE_ID", process.env.LUVUS_PANE_ID],
+      ];
+      process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+      process.env.PI_LUVUS_SHELL_READY_DELAY_MS = "0";
+      process.env.LUVUS_ENV = "1";
+      process.env.LUVUS_BIN_PATH = "in-process";
+      process.env.LUVUS_PANE_ID = "21";
+      const testApi = (subagentsModule as any).__test__;
+      const target = makeRecordingPi();
+      try {
+        subagentsModule.default(target.pi);
+        // Session teardown shuts the registration-time supervisor down...
+        target.fire("session_shutdown", undefined, CTX);
+        // ...and the next session installs its replacement.
+        target.fire("session_start", undefined, CTX);
+
+        const spawnTool = target.registeredTools.find((tool: any) => tool.name === "luvus_spawn");
+        assert.ok(spawnTool, "expected luvus_spawn tool to be registered");
+
+        const ctx = {
+          cwd: dir,
+          sessionManager: {
+            getSessionFile: () => join(dir, "parent.jsonl"),
+            getSessionId: () => "sess-restart",
+            getSessionDir: () => join(dir, "sessions"),
+          },
+        };
+        const result = await spawnTool.execute(
+          "call-1",
+          { name: "Scout", task: "survey the repo" },
+          undefined,
+          undefined,
+          ctx,
+        );
+        assert.equal(result.details.status, "started");
+
+        // The child must be tracked by the supervisor session_start installed,
+        // not the shut-down registration-time one — a watcher on the shut-down
+        // supervisor's abort controller would report "Subagent cancelled."
+        // for a child that is still running.
+        const map = testApi.runningSubagents as Map<string, any>;
+        assert.equal(map.has(result.details.id), true);
+        assert.equal(testApi.getModuleAbortController().signal.aborted, false);
+
+        // End the watcher through the sidecar and let the current supervisor
+        // finish the run, so no poll loop outlives the test.
+        writeFileSync(`${result.details.sessionFile}.exit`, JSON.stringify({ type: "done" }));
+        for (let i = 0; i < 150 && map.size > 0; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        assert.equal(map.size, 0);
+        assert.equal(
+          target.sentMessages.some(
+            (sent: any) =>
+              sent.message?.customType === "luvus_result" &&
+              /Subagent cancelled\./.test(sent.message?.content ?? ""),
+          ),
+          false,
+        );
+      } finally {
+        // Stop the replacement supervisor's intervals, watcher and stream.
+        target.fire("session_shutdown", undefined, CTX);
+        for (const [name, value] of saved) restoreEnvVar(name, value);
+        __setLuvusExecForTests__(null);
+      }
+    });
   });
 });

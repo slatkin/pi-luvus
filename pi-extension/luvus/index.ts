@@ -504,9 +504,12 @@ export function isSubagentChild(env: NodeJS.ProcessEnv = process.env): boolean {
 
 export default function subagentsExtension(pi: ExtensionAPI) {
   // A fresh supervisor for this registration: stop the supervisor that a
-  // previous load or registration left behind, then store the new one.
+  // previous load or registration left behind, then store the new one. Tool
+  // handlers resolve the supervisor per call through currentSupervisor(), so
+  // they always operate on the one the key holds — including the replacement
+  // that session_start installs after a shutdown.
   getSupervisor()?.shutdown();
-  const supervisor = createSupervisorInstance();
+  createSupervisorInstance();
   activePi = pi;
 
   // Live sidebar status for this pane. A subagent child does NOT register it:
@@ -532,7 +535,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 
   // Clean up on session shutdown
   pi.on("session_shutdown", (_event, _ctx) => {
-    supervisor.shutdown();
+    getSupervisor()?.shutdown();
   });
 
   // Tools denied via PI_DENY_TOOLS env var (set by parent agent based on frontmatter)
@@ -590,7 +593,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 
         // Launch the subagent (creates pane or tab, sends command) and start
         // watching it in the background; the supervisor delivers the result.
-        const running = await supervisor.spawn(params, ctx, {
+        const running = await currentSupervisor().spawn(params, ctx, {
           placement: resolveSurfacePlacement(params.surface),
         });
 
@@ -690,7 +693,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
         _toolCallId,
         params,
       ): Promise<AgentToolResult<{ error?: string; id?: string; name?: string; status?: string }>> {
-        return supervisor.interrupt(params);
+        return currentSupervisor().interrupt(params);
       },
 
       renderCall(args, theme) {
@@ -747,7 +750,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
           { to: params.to, message: params.message },
           {
             hasParent: !!sessionFile,
-            ownChildren: supervisor.running(),
+            ownChildren: currentSupervisor().running(),
             parentRoster: readParentRoster(),
             selfId: process.env.PI_LUVUS_ID ?? "",
             senderName: process.env.PI_LUVUS_NAME ?? "parent",
@@ -930,7 +933,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
         }
 
         // The supervisor owns the resume launch and its watcher.
-        return supervisor.resume(params, ctx, {
+        return currentSupervisor().resume(params, ctx, {
           placement: resolveSurfacePlacement(params.surface),
         });
       },
