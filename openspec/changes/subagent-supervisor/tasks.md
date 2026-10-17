@@ -29,7 +29,7 @@
 
 ## 6. Documentation
 
-- [ ] 6.1 Update `README.md` and `docs/guide.md`: say that `luvus_resume` resumes pi and Claude Code children with the role from the spawn, list its parameters, and note that `resumeSessionId` and the resume `name` parameter were removed. `docs/guide.md` documents `luvus_resume` and its parameters, so update its parameter list too. Check the text by hand, because Prettier does not format markdown, and verify that it says nothing about Luvus behavior.
+- [x] 6.1 Update `README.md` and `docs/guide.md`: say that `luvus_resume` resumes pi and Claude Code children with the role from the spawn, list its parameters, and note that `resumeSessionId` and the resume `name` parameter were removed. `docs/guide.md` documents `luvus_resume` and its parameters, so update its parameter list too. Check the text by hand, because Prettier does not format markdown, and verify that it says nothing about Luvus behavior.
 
 ## 7. Integration checks
 
