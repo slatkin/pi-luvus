@@ -61,10 +61,12 @@ import {
   capStatusLines,
   classifyStatus,
   createStatusState,
+  displayActivityLabel,
   forceStatusAfterInterrupt,
   formatStatusAggregate,
   formatTransitionLine,
   observeStatus,
+  toStatusObservation,
 } from "./status.ts";
 import {
   getSubagentActivityFile,
@@ -72,6 +74,7 @@ import {
   type ActivityReadResult,
   type SubagentActivityState,
 } from "./activity.ts";
+import { decodeChildEnv, encodeChildEnv, resolveDenyTools } from "./child-env.ts";
 import { capSummary, SCREEN_SUMMARY_CHARS } from "./report-cap.ts";
 import {
   IDLE_NUDGE_TEXT,
@@ -302,35 +305,7 @@ export interface Supervisor {
   renderSubagentWidgetLines(agents: RunningSubagent[], width: number): string[];
 }
 
-/** Tools that are gated by `spawning: false` */
-const SPAWNING_TOOLS = new Set(["luvus_spawn", "luvus_interrupt", "luvus_list", "luvus_resume"]);
-
-/**
- * Resolve the effective set of denied tool names from agent defaults.
- * `spawning: false` expands to all SPAWNING_TOOLS.
- * `deny-tools` adds individual tool names on top.
- */
-export function resolveDenyTools(agentDefs: AgentDefaults | null): Set<string> {
-  const denied = new Set<string>();
-  if (!agentDefs) return denied;
-
-  // spawning: false → deny all spawning tools
-  if (agentDefs.spawning === false) {
-    for (const t of SPAWNING_TOOLS) denied.add(t);
-  }
-
-  // deny-tools: explicit list
-  if (agentDefs.denyTools) {
-    for (const t of agentDefs.denyTools
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)) {
-      denied.add(t);
-    }
-  }
-
-  return denied;
-}
+export { resolveDenyTools } from "./child-env.ts";
 
 export function resolveSubagentPaths(
   params: Static<typeof SubagentParams>,
@@ -489,17 +464,18 @@ export function buildSpawnEnvParts(params: {
   denySet: Set<string>;
   parentRosterFile?: string;
 }): Record<string, string> {
-  const env: Record<string, string> = {};
+  const env = encodeChildEnv({
+    name: params.name,
+    agent: params.agent,
+    autoExit: params.autoExit === true,
+    sessionFile: params.subagentSessionFile,
+    id: params.id,
+    activityFile: params.activityFile,
+    surface: params.surface,
+    denyTools: [...params.denySet],
+    parentRosterFile: params.parentRosterFile,
+  });
   if (params.codingAgentDir) env.PI_CODING_AGENT_DIR = params.codingAgentDir;
-  if (params.denySet.size > 0) env.PI_DENY_TOOLS = [...params.denySet].join(",");
-  env.PI_LUVUS_NAME = params.name;
-  if (params.agent) env.PI_LUVUS_AGENT = params.agent;
-  if (params.autoExit) env.PI_LUVUS_AUTO_EXIT = "1";
-  env.PI_LUVUS_SESSION = params.subagentSessionFile;
-  env.PI_LUVUS_ID = params.id;
-  env.PI_LUVUS_ACTIVITY_FILE = params.activityFile;
-  env.PI_LUVUS_SURFACE = params.surface;
-  if (params.parentRosterFile) env.PI_LUVUS_PARENT_ROSTER = params.parentRosterFile;
   return env;
 }
 
@@ -713,7 +689,7 @@ export function formatWidgetRightLabel(snapshot: StatusSnapshot): string {
   if (snapshot.kind === "starting") return " starting… ";
   if (snapshot.kind === "running") return ` running ${snapshot.elapsedText} `;
   if (snapshot.kind === "active") {
-    const label = snapshot.activityLabel ?? snapshot.activeScope;
+    const label = displayActivityLabel(snapshot);
     const duration = snapshot.activeDurationText ? ` ${snapshot.activeDurationText}` : "";
     return label ? ` active · ${label}${duration} ` : " active ";
   }
@@ -756,14 +732,6 @@ export function resolveResultPresentation(
     : `Sub-agent "${name}" completed (${formatElapsed(result.elapsed)}).\n\n${summary}${sessionRef}`;
 }
 
-export function activityLabel(activity: SubagentActivityState): string | undefined {
-  if (activity.phase !== "active") return undefined;
-  if (activity.activeScope === "tool") return activity.toolName ?? "tool";
-  if (activity.activeScope === "provider") return "provider";
-  if (activity.activeScope === "streaming") return "streaming";
-  return activity.activeScope;
-}
-
 export function observeRunningSubagent(running: RunningSubagent, observedAt = Date.now()) {
   // A backend without an activity snapshot has nothing to observe.
   if (!backendFor(running).observes) return;
@@ -776,35 +744,9 @@ export function observeRunningSubagent(running: RunningSubagent, observedAt = Da
   running.activityRead =
     read.ok === true ? { ok: true } : { ok: false, reason: read.reason, error: read.error };
 
-  if (read.ok === true) {
-    running.activity = read.activity;
-    running.statusState = observeStatus(
-      running.statusState,
-      {
-        snapshot: "present",
-        updatedAt: read.activity.updatedAt,
-        sequence: read.activity.sequence,
-        phase: read.activity.phase,
-        active: read.activity.phase === "active",
-        activeScope: read.activity.activeScope,
-        activeSince: read.activity.activeSince,
-        waitingSince: read.activity.waitingSince,
-        latestEvent: read.activity.latestEvent,
-        activityLabel: activityLabel(read.activity),
-      },
-      observedAt,
-    );
-    return;
-  }
+  if (read.ok === true) running.activity = read.activity;
 
-  running.statusState = observeStatus(
-    running.statusState,
-    {
-      snapshot: read.reason,
-      snapshotError: read.error,
-    },
-    observedAt,
-  );
+  running.statusState = observeStatus(running.statusState, toStatusObservation(read), observedAt);
 }
 
 /** Resolved per call so a test can point HOME at a temporary directory. */
@@ -1396,7 +1338,7 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
         getArtifactDir(ctx.sessionManager.getSessionDir(), ctx.sessionManager.getSessionId()),
       ),
       parentPane: process.env.LUVUS_PANE_ID ?? "",
-      parentName: process.env.PI_LUVUS_NAME ?? "parent",
+      parentName: decodeChildEnv(process.env).name ?? "parent",
     };
   }
 

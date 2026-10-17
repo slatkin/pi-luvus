@@ -161,13 +161,26 @@ describe("createTurnNotifier", () => {
   it("makes no call in a subagent child", async () => {
     const { deps, pushed, focusChecks } = makeDeps();
     const { pi, fire } = makePi();
-    createTurnNotifier({ ...IN_LUVUS, PI_LUVUS_NAME: "worker" }, true, deps).register(pi as never);
+    createTurnNotifier({ ...IN_LUVUS, PI_LUVUS_SESSION: "/tmp/s.jsonl" }, true, deps).register(
+      pi as never,
+    );
 
     fire("agent_end", ending("stop"));
     await flush();
 
     assert.deepEqual(focusChecks, []);
     assert.deepEqual(pushed, []);
+  });
+
+  it("notifies when only PI_LUVUS_NAME is set", async () => {
+    const { deps, pushed } = makeDeps();
+    const { pi, fire } = makePi();
+    createTurnNotifier({ ...IN_LUVUS, PI_LUVUS_NAME: "worker" }, true, deps).register(pi as never);
+
+    fire("agent_end", ending("stop"));
+    await flush();
+
+    assert.deepEqual(pushed, [{ text: "pi turn ended: app", level: "success" }]);
   });
 
   it("makes no call outside Luvus", async () => {

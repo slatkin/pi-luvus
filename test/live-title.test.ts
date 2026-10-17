@@ -121,10 +121,16 @@ describe("live title controller", () => {
     assert.deepEqual(titles, ["π - Fix the login redirect - app"]);
   });
 
-  it("skips a subagent child (PI_LUVUS_NAME set)", () => {
+  it("skips a subagent child (PI_LUVUS_SESSION set)", () => {
+    const { titles, ctx } = makeCtx();
+    createLiveTitleController({ PI_LUVUS_SESSION: "/tmp/s.jsonl" }).setFromPrompt(ctx, "Fix it");
+    assert.deepEqual(titles, []);
+  });
+
+  it("sets the title when only PI_LUVUS_NAME is set", () => {
     const { titles, ctx } = makeCtx();
     createLiveTitleController({ PI_LUVUS_NAME: "scout" }).setFromPrompt(ctx, "Fix it");
-    assert.deepEqual(titles, []);
+    assert.deepEqual(titles, ["π - Fix it - app"]);
   });
 
   it("skips a session that has a name", () => {

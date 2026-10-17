@@ -14,6 +14,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { basename } from "node:path";
 import { isMuxAvailable, isPaneFocusedAsync, pushNotificationAsync } from "./luvus.ts";
+import { isSubagentChild } from "./child-env.ts";
 
 /** What the ended turn should produce. `none` means no notification. */
 export type TurnOutcome = "ended" | "failed" | "none";
@@ -67,7 +68,7 @@ export function createTurnNotifier(
   return {
     register(pi: ExtensionAPI): void {
       pi.on("agent_end", (event, ctx) => {
-        if (env.PI_LUVUS_NAME) return;
+        if (isSubagentChild(env)) return;
         if (!enabled) return;
         if (!isMuxAvailable(env)) return;
         const pane = env.LUVUS_PANE_ID as string;

@@ -853,6 +853,27 @@ describe("cli.ts start", () => {
     );
   });
 
+  it("denies every spawning tool for a role with spawning: false", async () => {
+    const cwd = mkdtempSync(join(workdir, "nospawn-"));
+    writeRole(cwd, "nospawn", "model: m\nthinking: low\nspawning: false", "No spawn body.");
+    const res = await runStart({ cwd, role: "nospawn" });
+    assert.equal(res.spec.env.PI_DENY_TOOLS, "luvus_spawn,luvus_interrupt,luvus_list,luvus_resume");
+  });
+
+  it("denies the explicit deny-tools list", async () => {
+    const cwd = mkdtempSync(join(workdir, "deny-"));
+    writeRole(cwd, "deny", "model: m\nthinking: low\ndeny-tools: claude", "Deny body.");
+    const res = await runStart({ cwd, role: "deny" });
+    assert.equal(res.spec.env.PI_DENY_TOOLS, "claude");
+  });
+
+  it("writes no PI_DENY_TOOLS when the role denies nothing", async () => {
+    const cwd = mkdtempSync(join(workdir, "allow-"));
+    writeRole(cwd, "allow", "model: m\nthinking: low", "Allow body.");
+    const res = await runStart({ cwd, role: "allow" });
+    assert.equal("PI_DENY_TOOLS" in res.spec.env, false);
+  });
+
   it("appends missing control tools to the role tools", async () => {
     const cwd = mkdtempSync(join(workdir, "thin-"));
     writeRole(
