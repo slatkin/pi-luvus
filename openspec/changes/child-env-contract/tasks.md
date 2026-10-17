@@ -29,8 +29,8 @@ All tests use fakes and fake `LUVUS_*` values. No task runs a live Luvus or star
 
 ## 5. Gates
 
-- [ ] 5.1 Run `pnpm test`, `pnpm run lint`, `pnpm run format:check` and `pnpm run typecheck`. All four pass.
-- [ ] 5.2 Run `openspec validate child-env-contract --strict`. It passes.
+- [x] 5.1 Run `pnpm test`, `pnpm run lint`, `pnpm run format:check` and `pnpm run typecheck`. All four pass.
+- [x] 5.2 Run `openspec validate child-env-contract --strict`. It passes.
 
 ## Workflow follow-up
 
