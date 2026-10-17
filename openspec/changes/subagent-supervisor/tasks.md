@@ -8,7 +8,7 @@
 
 ## 2. Backend table
 
-- [ ] 2.1 Add the pi and Claude Code backend entries (D4) with `buildLaunch`, `observes`, `interrupt`, `extractResult` and `afterExit`, and replace every `cli === "claude"` check in the supervisor with a lookup. Verify that `grep -n '=== "claude"' pi-extension/luvus/supervisor.ts` finds only the table, and that the moved tests from 1.3 pass unchanged.
+- [x] 2.1 Add the pi and Claude Code backend entries (D4) with `buildLaunch`, `observes`, `interrupt`, `extractResult` and `afterExit`, and replace every `cli === "claude"` check in the supervisor with a lookup. Verify that `grep -n '=== "claude"' pi-extension/luvus/supervisor.ts` finds only the table, and that the moved tests from 1.3 pass unchanged.
 
 ## 3. Launch record at spawn
 
