@@ -33,8 +33,8 @@
 
 ## 7. Integration checks
 
-- [ ] 7.1 Run `pnpm test`, `pnpm run lint`, `pnpm run format:check` and `pnpm run typecheck`, and verify that all pass, with the `external-orchestration` tests in `test/cli.test.ts` unchanged.
-- [ ] 7.2 Run `openspec validate subagent-supervisor --strict` and verify that it passes.
+- [x] 7.1 Run `pnpm test`, `pnpm run lint`, `pnpm run format:check` and `pnpm run typecheck`, and verify that all pass, with the `external-orchestration` tests in `test/cli.test.ts` unchanged.
+- [x] 7.2 Run `openspec validate subagent-supervisor --strict` and verify that it passes.
 
 ## Workflow follow-up
 
