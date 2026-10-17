@@ -58,6 +58,7 @@ import {
   type AgentDefinition,
 } from "./agent-defs.ts";
 
+import { decodeChildEnv, isSubagentChild } from "./child-env.ts";
 import { loadStatusConfig, loadSurfaceConfig, writeSurfaceConfig } from "./status.ts";
 import { createLuvusStatusReporter } from "./luvus-status.ts";
 import { createTurnNotifier } from "./turn-notify.ts";
@@ -298,8 +299,7 @@ export function appendParentMessage(file: string, payload: ParentMessage): void 
 }
 
 /** Read this process's parent roster (path passed to children at spawn). */
-function readParentRoster(): SubagentRoster | null {
-  const file = process.env.PI_LUVUS_PARENT_ROSTER;
+function readParentRoster(file: string | undefined): SubagentRoster | null {
   if (!file) return null;
   try {
     const parsed = JSON.parse(readFileSync(file, "utf8"));
@@ -430,11 +430,13 @@ export const __test__ = {
  * so this registration is skipped here to keep one reporter per child. A plain
  * pane (no child env) registers as before.
  */
-export function isSubagentChild(env: NodeJS.ProcessEnv = process.env): boolean {
-  return Boolean(env.PI_LUVUS_SESSION);
-}
+export { isSubagentChild };
 
 export default function subagentsExtension(pi: ExtensionAPI) {
+  // Decode the child env once: a pi process does not change its own
+  // PI_LUVUS_* values. Every reader below uses this value.
+  const childEnv = decodeChildEnv(process.env);
+
   // A fresh supervisor for this registration: stop the supervisor that a
   // previous load or registration left behind, then store the new one. Tool
   // handlers resolve the supervisor per call through currentSupervisor(), so
@@ -446,7 +448,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 
   // Live sidebar status for this pane. A subagent child does NOT register it:
   // luvus-done.ts owns the child's reporter (see isSubagentChild).
-  if (!isSubagentChild()) createLuvusStatusReporter().register(pi);
+  if (childEnv.sessionFile === undefined) createLuvusStatusReporter().register(pi);
 
   // One Luvus notification when a turn ends in an unfocused parent pane.
   createTurnNotifier(process.env, statusConfig.notifyEnabled).register(pi);
@@ -470,12 +472,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
   });
 
   // Tools denied via PI_DENY_TOOLS env var (set by parent agent based on frontmatter)
-  const deniedTools = new Set(
-    (process.env.PI_DENY_TOOLS ?? "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean),
-  );
+  const deniedTools = new Set(childEnv.denyTools);
 
   const shouldRegister = (name: string) => !deniedTools.has(name);
 
@@ -492,7 +489,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 
       async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
         // Prevent self-spawning (e.g. a scout spawning another scout)
-        const currentAgent = process.env.PI_LUVUS_AGENT;
+        const currentAgent = childEnv.agent;
         if (params.agent && currentAgent && params.agent === currentAgent) {
           return {
             content: [
@@ -676,15 +673,15 @@ export default function subagentsExtension(pi: ExtensionAPI) {
       > {
         if (!isMuxAvailable()) return muxUnavailableResult();
 
-        const sessionFile = process.env.PI_LUVUS_SESSION ?? null;
+        const sessionFile = childEnv.sessionFile ?? null;
         const result = sendSubagentMessage(
           { to: params.to, message: params.message },
           {
             hasParent: !!sessionFile,
             ownChildren: currentSupervisor().running(),
-            parentRoster: readParentRoster(),
-            selfId: process.env.PI_LUVUS_ID ?? "",
-            senderName: process.env.PI_LUVUS_NAME ?? "parent",
+            parentRoster: readParentRoster(childEnv.parentRosterFile),
+            selfId: childEnv.id ?? "",
+            senderName: childEnv.name ?? "parent",
             parentMessageFile: sessionFile ? getParentMessageFile(sessionFile) : null,
           },
           { prompt: agentPrompt, append: appendParentMessage },
