@@ -23,9 +23,9 @@ All tests use fakes and fake `LUVUS_*` values. No task runs a live Luvus or star
 
 ## 4. Phase vocabulary and observation adapter
 
-- [ ] 4.1 In `status.ts`, delete `StatusActivityPhase` and import `type SubagentActivityPhase` from `activity.ts`. Verify: `pnpm run typecheck` passes and `grep -rn StatusActivityPhase pi-extension test` finds nothing.
-- [ ] 4.2 Add `toStatusObservation(read)` and `buildActivityLabel(activity)` to `status.ts` (design D5). Change `observeRunningSubagent` to call `observeStatus` one time with the adapter result, and remove `activityLabel` from `supervisor.ts`. Add tests in `test/test.ts`: an ok read maps every field (tool scope gives the tool name or `tool`; a non-active phase gives no label); each failure reason (`missing`, `invalid`, `wrong-id`) maps to that snapshot with its error. Verify: the observe and classify tests in `test/test.ts` and `test/supervisor.test.ts` pass unchanged, and the new tests pass.
-- [ ] 4.3 Rename the `status.ts` display fallback to an exported `displayActivityLabel(snapshot)`, and use it in `formatWidgetRightLabel`. Verify: the widget right-label and status-line tests pass unchanged.
+- [x] 4.1 In `status.ts`, delete `StatusActivityPhase` and import `type SubagentActivityPhase` from `activity.ts`. Verify: `pnpm run typecheck` passes and `grep -rn StatusActivityPhase pi-extension test` finds nothing.
+- [x] 4.2 Add `toStatusObservation(read)` and `buildActivityLabel(activity)` to `status.ts` (design D5). Change `observeRunningSubagent` to call `observeStatus` one time with the adapter result, and remove `activityLabel` from `supervisor.ts`. Add tests in `test/test.ts`: an ok read maps every field (tool scope gives the tool name or `tool`; a non-active phase gives no label); each failure reason (`missing`, `invalid`, `wrong-id`) maps to that snapshot with its error. Verify: the observe and classify tests in `test/test.ts` and `test/supervisor.test.ts` pass unchanged, and the new tests pass.
+- [x] 4.3 Rename the `status.ts` display fallback to an exported `displayActivityLabel(snapshot)`, and use it in `formatWidgetRightLabel`. Verify: the widget right-label and status-line tests pass unchanged.
 
 ## 5. Gates
 
