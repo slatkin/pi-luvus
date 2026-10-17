@@ -33,6 +33,14 @@ export function encodeChildEnv(env: ChildEnv): Record<string, string> {
   return out;
 }
 
+/** Split a comma-separated tool list, trimming entries and dropping empties. */
+function parseToolList(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .split(",")
+    .map((tool) => tool.trim())
+    .filter(Boolean);
+}
+
 /** Decode the child env. An empty string counts as not set. */
 export function decodeChildEnv(env: NodeJS.ProcessEnv): ChildEnv {
   const value = (key: string): string | undefined => {
@@ -49,10 +57,7 @@ export function decodeChildEnv(env: NodeJS.ProcessEnv): ChildEnv {
     surface: value("PI_LUVUS_SURFACE"),
     parentRosterFile: value("PI_LUVUS_PARENT_ROSTER"),
     autoExit: env.PI_LUVUS_AUTO_EXIT === "1",
-    denyTools: (env.PI_DENY_TOOLS ?? "")
-      .split(",")
-      .map((tool) => tool.trim())
-      .filter(Boolean),
+    denyTools: parseToolList(env.PI_DENY_TOOLS),
   };
 }
 
@@ -79,14 +84,7 @@ export function resolveDenyTools(agentDefs: AgentDefaults | null): Set<string> {
   }
 
   // deny-tools: explicit list
-  if (agentDefs.denyTools) {
-    for (const t of agentDefs.denyTools
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)) {
-      denied.add(t);
-    }
-  }
+  for (const t of parseToolList(agentDefs.denyTools)) denied.add(t);
 
   return denied;
 }
