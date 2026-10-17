@@ -41,6 +41,13 @@ import {
   writeLaunchSpec,
   type LaunchSpec,
 } from "./launch.ts";
+import {
+  LAUNCH_RECORD_VERSION,
+  getLaunchRecordFile,
+  writeLaunchRecord,
+  type LaunchBackendName,
+  type LaunchRecord,
+} from "./launch-record.ts";
 import { findLastAssistantMessage, getNewEntries, seedSubagentSessionFile } from "./session.ts";
 import { slugifyName } from "./slug.ts";
 import {
@@ -937,28 +944,23 @@ export function requestSubagentInterrupt(
   }
 }
 
-/** Backend keys of the table below; a launch record stores one (design D3). */
-type BackendName = "pi" | "claude";
-
 /** One spawn resolution plus its per-run binding, so a backend builds one run. */
 export interface BackendLaunchRequest {
-  params: Static<typeof SubagentParams>;
-  agentDefs: AgentDefaults | null;
+  /** Role values the spawn resolved once (design D3). */
+  record: LaunchRecord;
+  /** The spawning task, which the record does not keep. */
+  task: string;
+  /** Skill prompts for this spawn, which the record does not keep. */
+  skills?: string;
   launchBehavior: LaunchBehavior;
-  /** Target cwd for the child, when the spawn or its agent named one. */
-  effectiveCwd: string | null;
-  effectiveModel?: string;
-  effectiveThinking?: string;
-  effectiveTools?: string;
-  effectiveSkills?: string;
-  effectiveInteractive: boolean;
   /** The target cwd's `.pi/agent` directory, when it has one. */
   localAgentDir: string | null;
   artifactDir: string;
-  denySet: Set<string>;
   /** Names the child can reach with `luvus_message` at spawn time. */
   siblingNames: string[];
   parentRosterFile?: string;
+  /** Claude Code session id from the spawn parameters (removed in a later row). */
+  resumeSessionId?: string;
   /** Values that change for every run; the record does not keep them (design D3). */
   run: {
     id: string;
@@ -998,8 +1000,15 @@ type BackendAfterExit = (running: RunningSubagent) => Pick<SubagentResult, "clau
 
 /** One backend's behavior. The supervisor reads this table, not the backend name. */
 interface SubagentBackend {
+  /** The record backend name this entry builds (design D3). */
+  name: LaunchBackendName;
   /** True when the backend publishes an activity snapshot that status reads. */
   observes: boolean;
+  /** Role-prompt precedence; the spawn resolves it once into the record. */
+  resolveRolePrompt(
+    params: Static<typeof SubagentParams>,
+    agentDefs: AgentDefaults | null,
+  ): string | undefined;
   buildLaunch(request: BackendLaunchRequest): BackendLaunch;
   /** Null when Escape interrupts this backend; otherwise the refusal result. */
   interrupt(running: RunningSubagent): BackendInterruptRefusal | null;
@@ -1012,19 +1021,19 @@ interface SubagentBackend {
 }
 
 function buildPiLaunch(request: BackendLaunchRequest): BackendLaunch {
-  const { params, agentDefs, launchBehavior, run } = request;
+  const { record, launchBehavior, run } = request;
 
   // Only full-context fork mode inherits prior conversation state.
   // Blank-session modes need the wrapper instructions and artifact-backed handoff.
-  const identity = agentDefs?.body ?? params.systemPrompt ?? null;
-  const systemPromptMode = agentDefs?.systemPromptMode;
+  const identity = record.rolePrompt ?? null;
+  const systemPromptMode = record.systemPromptMode;
   const identityInSystemPrompt = systemPromptMode && identity;
   const roleBlock = identity && !identityInSystemPrompt ? `\n\n${identity}` : "";
   const fullTask = buildSubagentTaskPrompt({
-    task: params.task,
+    task: request.task,
     roleBlock,
-    modeHint: resolveModeHint(agentDefs?.autoExit),
-    summaryInstruction: agentDefs?.autoExit
+    modeHint: resolveModeHint(record.autoExit),
+    summaryInstruction: record.autoExit
       ? "Your FINAL assistant message should summarize what you accomplished. Put the verdict or outcome first. Keep it short: results and findings, not your process. Follow your role's report format if it sets one."
       : "Your FINAL assistant message (before calling luvus_done or before the user exits) should summarize what you accomplished. Put the verdict or outcome first. Keep it short: results and findings, not your process. Follow your role's report format if it sets one.",
     messagingHint: buildLaunchMessagingHint(request.siblingNames),
@@ -1037,10 +1046,8 @@ function buildPiLaunch(request: BackendLaunchRequest): BackendLaunch {
   const subagentDonePath = join(SUBAGENTS_DIR, "luvus-done.ts");
   piArgs.push("-e", subagentDonePath);
 
-  if (request.effectiveModel) {
-    const model = request.effectiveThinking
-      ? `${request.effectiveModel}:${request.effectiveThinking}`
-      : request.effectiveModel;
+  if (record.model) {
+    const model = record.thinking ? `${record.model}:${record.thinking}` : record.model;
     piArgs.push("--model", model);
   }
 
@@ -1050,7 +1057,7 @@ function buildPiLaunch(request: BackendLaunchRequest): BackendLaunch {
   if (identityInSystemPrompt && identity) {
     const flag = systemPromptMode === "replace" ? "--system-prompt" : "--append-system-prompt";
     const spTimestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    const spSafeName = slugifyName(params.name, { hyphenate: false });
+    const spSafeName = slugifyName(record.name, { hyphenate: false });
     const syspromptPath = join(
       request.artifactDir,
       `context/${spSafeName || "subagent"}-sysprompt-${spTimestamp}.md`,
@@ -1060,7 +1067,7 @@ function buildPiLaunch(request: BackendLaunchRequest): BackendLaunch {
     piArgs.push(flag, syspromptPath);
   }
 
-  const toolAllowlist = buildSubagentToolAllowlist(request.effectiveTools);
+  const toolAllowlist = buildSubagentToolAllowlist(record.tools);
   if (toolAllowlist) {
     piArgs.push("--tools", toolAllowlist);
   }
@@ -1073,15 +1080,15 @@ function buildPiLaunch(request: BackendLaunchRequest): BackendLaunch {
       ? request.localAgentDir
       : process.env.PI_CODING_AGENT_DIR;
   const spawnEnv = buildSpawnEnvParts({
-    name: params.name,
-    agent: params.agent,
-    autoExit: agentDefs?.autoExit,
+    name: record.name,
+    agent: record.agent,
+    autoExit: record.autoExit,
     subagentSessionFile: run.sessionFile,
     id: run.id,
     activityFile: run.activityFile,
     surface: run.surface,
     codingAgentDir,
-    denySet: request.denySet,
+    denySet: new Set(record.denyTools),
     parentRosterFile: request.parentRosterFile,
   });
 
@@ -1094,7 +1101,7 @@ function buildPiLaunch(request: BackendLaunchRequest): BackendLaunch {
     taskArg = fullTask;
   } else {
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    const safeName = slugifyName(params.name, { hyphenate: false });
+    const safeName = slugifyName(record.name, { hyphenate: false });
     const artifactName = `context/${safeName || "subagent"}-${timestamp}.md`;
     const artifactPath = join(request.artifactDir, artifactName);
     mkdirSync(dirname(artifactPath), { recursive: true });
@@ -1103,7 +1110,7 @@ function buildPiLaunch(request: BackendLaunchRequest): BackendLaunch {
   }
 
   for (const promptArg of buildPiPromptArgs({
-    effectiveSkills: request.effectiveSkills,
+    effectiveSkills: request.skills,
     taskDelivery: launchBehavior.taskDelivery,
     taskArg,
   })) {
@@ -1113,25 +1120,25 @@ function buildPiLaunch(request: BackendLaunchRequest): BackendLaunch {
   return {
     spec: {
       version: LAUNCH_SPEC_VERSION,
-      name: params.name,
-      ...(request.effectiveCwd ? { cwd: request.effectiveCwd } : {}),
+      name: record.name,
+      ...(record.cwd ? { cwd: record.cwd } : {}),
       env: spawnEnv,
       command: "pi",
       args: piArgs,
       sessionFile: run.sessionFile,
-      title: buildPaneTitle(params.name, params.task),
+      title: buildPaneTitle(record.name, request.task),
     },
     running: {
       id: run.id,
-      name: params.name,
-      task: params.task,
-      agent: params.agent,
+      name: record.name,
+      task: request.task,
+      agent: record.agent,
       surface: run.surface,
       startTime: run.startTime,
       sessionFile: run.sessionFile,
       launchScriptFile: run.launchScriptFile,
       activityFile: run.activityFile,
-      interactive: request.effectiveInteractive,
+      interactive: record.interactive,
       statusState: createStatusState({
         source: "pi",
         startTimeMs: run.startTime,
@@ -1141,7 +1148,7 @@ function buildPiLaunch(request: BackendLaunchRequest): BackendLaunch {
 }
 
 function buildClaudeLaunch(request: BackendLaunchRequest): BackendLaunch {
-  const { params, agentDefs, run } = request;
+  const { record, run } = request;
   const sentinelFile = join(tmpdir(), `pi-claude-${run.id}-done`);
   const pluginDir = join(SUBAGENTS_DIR, "plugin");
 
@@ -1151,46 +1158,45 @@ function buildClaudeLaunch(request: BackendLaunchRequest): BackendLaunch {
     claudeArgs.push("--plugin-dir", pluginDir);
   }
 
-  if (request.effectiveModel) {
-    claudeArgs.push("--model", request.effectiveModel);
+  if (record.model) {
+    claudeArgs.push("--model", record.model);
   }
 
-  const systemPrompt = params.systemPrompt ?? agentDefs?.body;
-  if (systemPrompt) {
-    claudeArgs.push("--append-system-prompt", systemPrompt);
+  if (record.rolePrompt) {
+    claudeArgs.push("--append-system-prompt", record.rolePrompt);
   }
 
-  if (params.resumeSessionId) {
-    claudeArgs.push("--resume", params.resumeSessionId);
+  if (request.resumeSessionId) {
+    claudeArgs.push("--resume", request.resumeSessionId);
   }
 
   // Always pass the task as the prompt — even for resumed sessions,
   // the caller's task is the follow-up instruction.
-  claudeArgs.push(params.task);
+  claudeArgs.push(request.task);
 
   return {
     spec: {
       version: LAUNCH_SPEC_VERSION,
-      name: params.name,
-      ...(request.effectiveCwd ? { cwd: request.effectiveCwd } : {}),
+      name: record.name,
+      ...(record.cwd ? { cwd: record.cwd } : {}),
       env: { PI_CLAUDE_SENTINEL: sentinelFile },
       command: "claude",
       args: claudeArgs,
       sessionFile: run.sessionFile,
-      title: buildPaneTitle(params.name, params.task),
+      title: buildPaneTitle(record.name, request.task),
     },
     running: {
       id: run.id,
-      name: params.name,
-      task: params.task,
-      agent: params.agent,
+      name: record.name,
+      task: request.task,
+      agent: record.agent,
       surface: run.surface,
       startTime: run.startTime,
       sessionFile: run.sessionFile,
       launchScriptFile: run.launchScriptFile,
       cli: "claude",
       sentinelFile,
-      interactive: request.effectiveInteractive,
+      interactive: record.interactive,
       statusState: createStatusState({
         source: "claude",
         startTimeMs: run.startTime,
@@ -1281,16 +1287,22 @@ function refuseClaudeInterrupt(running: RunningSubagent): BackendInterruptRefusa
 }
 
 /** The backend table (design D4): one place decides each backend's differences. */
-const BACKENDS: Record<BackendName, SubagentBackend> = {
+const BACKENDS: Record<LaunchBackendName, SubagentBackend> = {
   pi: {
+    name: "pi",
     observes: true,
+    // The agent body is the role; an explicit parameter only fills a gap.
+    resolveRolePrompt: (params, agentDefs) => agentDefs?.body ?? params.systemPrompt,
     buildLaunch: buildPiLaunch,
     interrupt: () => null,
     extractResult: extractPiResult,
     afterExit: () => ({}),
   },
   claude: {
+    name: "claude",
     observes: false,
+    // An explicit parameter wins over the agent body, as Claude Code did before.
+    resolveRolePrompt: (params, agentDefs) => params.systemPrompt ?? agentDefs?.body,
     buildLaunch: buildClaudeLaunch,
     interrupt: refuseClaudeInterrupt,
     extractResult: extractClaudeResult,
@@ -1606,6 +1618,30 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
     const launchScriptFile = join(artifactDir, "luvus-scripts", `${launchBase}-${id}.json`);
     const paneLine = paneCommandLine(SUBAGENTS_CLI_PATH, launchScriptFile);
 
+    const launchBehavior = resolveLaunchBehavior(params, agentDefs);
+    const denySet = resolveDenyTools(agentDefs);
+    const backend = backendFor(agentDefs);
+    const rolePrompt = backend.resolveRolePrompt(params, agentDefs);
+
+    // Resolve the agent defaults once and keep them in the launch record, so a
+    // later resume starts the same role without reading the agent file again.
+    const record: LaunchRecord = {
+      version: LAUNCH_RECORD_VERSION,
+      backend: backend.name,
+      name: params.name,
+      ...(params.agent ? { agent: params.agent } : {}),
+      ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
+      ...(effectiveModel ? { model: effectiveModel } : {}),
+      ...(effectiveThinking ? { thinking: effectiveThinking } : {}),
+      ...(effectiveTools ? { tools: effectiveTools } : {}),
+      ...(rolePrompt ? { rolePrompt } : {}),
+      ...(agentDefs?.systemPromptMode ? { systemPromptMode: agentDefs.systemPromptMode } : {}),
+      denyTools: [...denySet],
+      autoExit: agentDefs?.autoExit ?? false,
+      interactive: effectiveInteractive,
+    };
+    writeLaunchRecord(getLaunchRecordFile(subagentSessionFile), record);
+
     // Use pre-created surface (parallel mode) or create a new one.
     // For new surfaces, pause briefly so the shell is ready before sending the command.
     const surfacePreCreated = !!options?.surface;
@@ -1613,8 +1649,6 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
     if (!surfacePreCreated) {
       await new Promise<void>((resolve) => setTimeout(resolve, getShellReadyDelayMs()));
     }
-
-    const launchBehavior = resolveLaunchBehavior(params, agentDefs);
 
     if (launchBehavior.seededSessionMode) {
       seedSubagentSessionFile({
@@ -1627,24 +1661,17 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
 
     const activityFile = getSubagentActivityFile(artifactDir, id);
     mkdirSync(dirname(activityFile), { recursive: true });
-    const denySet = resolveDenyTools(agentDefs);
 
-    const backend = backendFor(agentDefs);
     const { spec, running } = backend.buildLaunch({
-      params,
-      agentDefs,
+      record,
+      task: params.task,
+      skills: effectiveSkills,
       launchBehavior,
-      effectiveCwd,
-      effectiveModel,
-      effectiveThinking,
-      effectiveTools,
-      effectiveSkills,
-      effectiveInteractive,
       localAgentDir,
       artifactDir,
-      denySet,
       siblingNames: Array.from(runningSubagents.values(), (agent) => agent.name),
       parentRosterFile: rosterContext?.file,
+      resumeSessionId: params.resumeSessionId,
       run: {
         id,
         surface,

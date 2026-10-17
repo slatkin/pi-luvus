@@ -24,6 +24,13 @@ import {
   type SupervisorDeps,
 } from "../pi-extension/luvus/supervisor.ts";
 import { paneCommandLine, readLaunchSpec } from "../pi-extension/luvus/launch.ts";
+import {
+  LAUNCH_RECORD_VERSION,
+  getLaunchRecordFile,
+  readLaunchRecord,
+  writeLaunchRecord,
+  type LaunchRecord,
+} from "../pi-extension/luvus/launch-record.ts";
 import type { PollResult } from "../pi-extension/luvus/luvus.ts";
 import type { UhpEventStream } from "../pi-extension/luvus/uhp-events.ts";
 import {
@@ -140,6 +147,7 @@ interface SupervisorOptions {
   closeSurfaceThrows?: boolean;
   ui?: boolean;
   pollForExit?: LuvusPoll;
+  onRunInPane?: (line: string) => void;
 }
 
 function makeSupervisor(env: TestEnv, options: SupervisorOptions = {}) {
@@ -160,6 +168,7 @@ function makeSupervisor(env: TestEnv, options: SupervisorOptions = {}) {
     luvus: {
       createSurface: () => String(nextPane++),
       runInPane: (surface, line) => {
+        options.onRunInPane?.(line);
         runs.push({ surface, line });
       },
       closeSurface: (surface) => {
@@ -244,6 +253,92 @@ function rosterChildren(env: TestEnv): unknown {
   return JSON.parse(readFileSync(file, "utf8")).children;
 }
 
+const BASE_RECORD: LaunchRecord = {
+  version: LAUNCH_RECORD_VERSION,
+  backend: "pi",
+  name: "Worker",
+  denyTools: ["luvus_spawn"],
+  autoExit: true,
+  interactive: false,
+};
+
+function withTempDir(run: (dir: string) => void): void {
+  const dir = mkdtempSync(join(tmpdir(), "launch-record-test-"));
+  try {
+    run(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+describe("launch record", () => {
+  it("round trips a record through a temp file and a rename", () => {
+    withTempDir((dir) => {
+      const file = join(dir, "nested", "child.jsonl.launch.json");
+      const record: LaunchRecord = {
+        ...BASE_RECORD,
+        agent: "worker",
+        cwd: "/repo",
+        model: "test-model",
+        thinking: "high",
+        tools: "read,bash",
+        rolePrompt: "You are a worker.",
+        systemPromptMode: "append",
+      };
+
+      writeLaunchRecord(file, record);
+
+      assert.deepEqual(readLaunchRecord(file), record);
+      // The record is renamed into place, not left behind as a temp file.
+      assert.deepEqual(readdirSync(dirname(file)), ["child.jsonl.launch.json"]);
+    });
+  });
+
+  it("treats a missing file as no record", () => {
+    withTempDir((dir) => {
+      assert.equal(readLaunchRecord(join(dir, "absent.jsonl.launch.json")), null);
+    });
+  });
+
+  it("treats invalid JSON as no record", () => {
+    withTempDir((dir) => {
+      const file = join(dir, "broken.jsonl.launch.json");
+      writeFileSync(file, '{"version": 1, "backend": ');
+      assert.equal(readLaunchRecord(file), null);
+    });
+  });
+
+  it("treats a wrong version as no record", () => {
+    withTempDir((dir) => {
+      const file = join(dir, "future.jsonl.launch.json");
+      writeFileSync(file, JSON.stringify({ ...BASE_RECORD, version: 2 }));
+      assert.equal(readLaunchRecord(file), null);
+    });
+  });
+
+  it("keeps a record with no per-run fields", () => {
+    withTempDir((dir) => {
+      const file = join(dir, "minimal.jsonl.launch.json");
+      writeLaunchRecord(file, BASE_RECORD);
+
+      assert.deepEqual(readLaunchRecord(file), BASE_RECORD);
+      const raw = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+      for (const key of [
+        "id",
+        "surface",
+        "task",
+        "activityFile",
+        "rosterFile",
+        "sentinelFile",
+        "artifactDir",
+        "entryCountBefore",
+      ]) {
+        assert.equal(key in raw, false, `expected no per-run field ${key}`);
+      }
+    });
+  });
+});
+
 describe("supervisor launch", () => {
   it("writes a launch spec and runs one node line, with no shell script", async () => {
     await withHarness(async (h, env) => {
@@ -289,6 +384,110 @@ describe("supervisor launch", () => {
     });
   });
 
+  it("writes a launch record before the pane line and keeps the pi launch spec", async () => {
+    const recordExistedAtPaneRun: boolean[] = [];
+
+    await withHarness(
+      async (h, env) => {
+        const repoDir = join(env.dir, "repo");
+        writeAgentFile(
+          join(env.dir, "agent", "agents"),
+          "scout",
+          `spawning: false\ncwd: ${repoDir}\nmodel: test-model\ntools: read,bash\nsystem-prompt: append`,
+          "You are a scout.",
+        );
+
+        const running = await h.supervisor.spawn(
+          { name: "Scout", task: "Fix the login bug", agent: "scout" },
+          env.ctx,
+        );
+
+        const recordFile = getLaunchRecordFile(running.sessionFile);
+        assert.equal(existsSync(recordFile), true);
+
+        const record = readLaunchRecord(recordFile);
+        assert.ok(record);
+        assert.equal(record.version, LAUNCH_RECORD_VERSION);
+        assert.equal(record.backend, "pi");
+        assert.equal(record.agent, "scout");
+        assert.equal(record.cwd, repoDir);
+        assert.equal(record.model, "test-model");
+        assert.equal(record.tools, "read,bash");
+        assert.equal(record.rolePrompt, "You are a scout.");
+        assert.equal(record.systemPromptMode, "append");
+        assert.deepEqual([...record.denyTools].sort(), [
+          "luvus_interrupt",
+          "luvus_list",
+          "luvus_resume",
+          "luvus_spawn",
+        ]);
+        assert.equal(record.autoExit, false);
+        assert.equal(record.interactive, true);
+
+        // The record holds role values only: no task text, pane or run id.
+        assert.equal("task" in record, false);
+        assert.equal("id" in record, false);
+        assert.doesNotMatch(JSON.stringify(record), /Fix the login bug/);
+        assert.doesNotMatch(JSON.stringify(record), new RegExp(running.id));
+
+        // The spec keeps the argv and env the spawn built before the record.
+        const spec = readLaunchSpec(running.launchScriptFile as string);
+        assert.equal(spec.command, "pi");
+        assert.equal(spec.cwd, repoDir);
+        assert.equal(spec.sessionFile, running.sessionFile);
+
+        const syspromptPath = flagValue(spec.args, "--append-system-prompt");
+        assert.match(syspromptPath ?? "", /sysprompt-.*\.md$/);
+        assert.equal(readFileSync(syspromptPath as string, "utf8"), "You are a scout.");
+
+        const taskArg = spec.args.at(-1) ?? "";
+        assert.match(taskArg, /^@.*\.md$/);
+        assert.match(readFileSync(taskArg.slice(1), "utf8"), /Fix the login bug/);
+
+        assert.deepEqual(spec.args, [
+          "--session",
+          running.sessionFile,
+          "-e",
+          join(SUBAGENTS_DIR, "luvus-done.ts"),
+          "--model",
+          "test-model",
+          "--append-system-prompt",
+          syspromptPath,
+          "--tools",
+          "read,bash,caller_ping,luvus_done,luvus_message",
+          taskArg,
+        ]);
+        assert.deepEqual(spec.env, {
+          PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR,
+          PI_DENY_TOOLS: "luvus_spawn,luvus_interrupt,luvus_list,luvus_resume",
+          PI_LUVUS_NAME: "Scout",
+          PI_LUVUS_AGENT: "scout",
+          PI_LUVUS_SESSION: running.sessionFile,
+          PI_LUVUS_ID: running.id,
+          PI_LUVUS_ACTIVITY_FILE: running.activityFile,
+          PI_LUVUS_SURFACE: running.surface,
+          PI_LUVUS_PARENT_ROSTER: getRosterFile(
+            getArtifactDir(join(env.dir, "sessions"), "sess-001"),
+          ),
+        });
+        assert.equal("PI_LUVUS_AUTO_EXIT" in spec.env, false);
+
+        // The record is on disk by the time the pane line runs.
+        assert.deepEqual(recordExistedAtPaneRun, [true]);
+      },
+      {
+        onRunInPane: (line) => {
+          const specPath = /"([^"]+\.json)"/.exec(line)?.[1];
+          assert.ok(specPath, `expected a launch spec path in ${line}`);
+          const spec = readLaunchSpec(specPath);
+          recordExistedAtPaneRun.push(
+            spec.sessionFile !== undefined && existsSync(getLaunchRecordFile(spec.sessionFile)),
+          );
+        },
+      },
+    );
+  });
+
   it("writes a Claude launch spec with a tmpdir sentinel", async () => {
     await withHarness(async (h, env) => {
       writeAgentFile(
@@ -314,6 +513,14 @@ describe("supervisor launch", () => {
       assert.ok(String(spec.env.PI_CLAUDE_SENTINEL).startsWith(tmpdir()));
       assert.equal(spec.closeOnDone, undefined);
       assert.equal(h.runs.length, 1);
+
+      const record = readLaunchRecord(getLaunchRecordFile(running.sessionFile));
+      assert.ok(record);
+      assert.equal(record.backend, "claude");
+      assert.equal(record.agent, "claude-role");
+      assert.equal(record.model, "claude-model");
+      assert.equal(record.rolePrompt, "You are Claude.");
+      assert.equal(record.systemPromptMode, undefined);
     });
   });
 });
