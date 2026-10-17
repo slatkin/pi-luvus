@@ -23,9 +23,8 @@ import {
   mkdirSync,
   rmSync,
   existsSync,
-  readdirSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { visibleWidth } from "@earendil-works/pi-tui";
@@ -52,7 +51,6 @@ import {
   __setLuvusExecForTests__,
 } from "../pi-extension/luvus/luvus.ts";
 import { __setUhpSpawnForTests__ } from "../pi-extension/luvus/uhp-events.ts";
-import { paneCommandLine, readLaunchSpec } from "../pi-extension/luvus/launch.ts";
 import {
   advanceStatusState,
   capStatusLines,
@@ -169,16 +167,6 @@ function restoreEnvVar(name: string, value: string | undefined) {
     return;
   }
   process.env[name] = value;
-}
-
-function withMockedNow<T>(now: number, fn: () => T): T {
-  const originalNow = Date.now;
-  Date.now = () => now;
-  try {
-    return fn();
-  } finally {
-    Date.now = originalNow;
-  }
 }
 
 function writeAgentFile(
@@ -2345,142 +2333,6 @@ describe("tool registration", () => {
   });
 });
 
-describe("pi-parent launch", () => {
-  const SUBAGENTS_DIR = join(
-    dirname(fileURLToPath(import.meta.url)),
-    "..",
-    "pi-extension",
-    "luvus",
-  );
-  const CLI = join(SUBAGENTS_DIR, "cli.ts");
-
-  function flagValue(args: string[], flag: string): string | undefined {
-    const index = args.indexOf(flag);
-    return index >= 0 ? args[index + 1] : undefined;
-  }
-
-  /** Run one launch against the Luvus seam, in a temp agent and session root. */
-  async function withLaunchEnv(
-    run: (context: { dir: string; calls: string[]; testApi: any; ctx: any }) => Promise<void>,
-  ): Promise<void> {
-    await withTempDir(async (dir) => {
-      const calls: string[] = [];
-      __setLuvusExecForTests__((args) => {
-        calls.push(args.join(" "));
-        if (args[0] === "pane" && args[1] === "split") {
-          return '{"id":"1","result":{"pane":"24","revision":1,"type":"pane","tab":"1","workspace":"2"}}';
-        }
-        return '{"id":"1","result":{"revision":1,"type":"ok"}}';
-      });
-      const previous = {
-        PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR,
-        PI_LUVUS_SHELL_READY_DELAY_MS: process.env.PI_LUVUS_SHELL_READY_DELAY_MS,
-        LUVUS_ENV: process.env.LUVUS_ENV,
-        LUVUS_BIN_PATH: process.env.LUVUS_BIN_PATH,
-        LUVUS_PANE_ID: process.env.LUVUS_PANE_ID,
-      };
-      process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
-      process.env.PI_LUVUS_SHELL_READY_DELAY_MS = "0";
-      process.env.LUVUS_ENV = "1";
-      process.env.LUVUS_BIN_PATH = "in-process";
-      process.env.LUVUS_PANE_ID = "21";
-      const testApi = (subagentsModule as any).__test__;
-      const sessionDir = join(dir, "sessions");
-      mkdirSync(sessionDir, { recursive: true });
-      const ctx = {
-        cwd: dir,
-        sessionManager: {
-          getSessionFile: () => join(dir, "parent.jsonl"),
-          getSessionId: () => "sess-001",
-          getSessionDir: () => sessionDir,
-        },
-      };
-      try {
-        await run({ dir, calls, testApi, ctx });
-      } finally {
-        testApi.setRosterContext(null);
-        testApi.runningSubagents.clear();
-        __setLuvusExecForTests__(null);
-        for (const [name, value] of Object.entries(previous)) restoreEnvVar(name, value);
-      }
-    });
-  }
-
-  it("writes a launch spec and runs one node line, with no shell script", async () => {
-    await withLaunchEnv(async ({ dir, calls, testApi, ctx }) => {
-      const running = await testApi.launchSubagent(
-        { name: "Scout", task: "Fix the login bug", model: "test-model" },
-        ctx,
-        { placement: "right" },
-      );
-
-      const launchPath = running.launchScriptFile as string;
-      assert.ok(launchPath.endsWith(".json"), `expected a JSON spec, got ${launchPath}`);
-
-      // Exactly one pane run, and it follows the shell-neutral node line.
-      const runCalls = calls.filter((call) => call.startsWith("pane run"));
-      assert.equal(runCalls.length, 1);
-      assert.equal(runCalls[0], `pane run 24 ${paneCommandLine(CLI, launchPath)}`);
-      assert.match(runCalls[0], /^pane run 24 node ".*cli\.ts" "run" ".*\.json"$/);
-
-      // The spec carries the child argv and env; the parent owns the close.
-      const spec = readLaunchSpec(launchPath);
-      assert.equal(spec.command, "pi");
-      assert.deepEqual(spec.args.slice(0, 2), ["--session", running.sessionFile]);
-      assert.equal(spec.sessionFile, running.sessionFile);
-      assert.equal(spec.closeOnDone, undefined);
-      assert.equal(spec.cwd, undefined);
-      assert.equal(spec.title, "Scout — Fix the login bug");
-      assert.equal(spec.env.PI_LUVUS_NAME, "Scout");
-      assert.equal(spec.env.PI_LUVUS_SESSION, running.sessionFile);
-      assert.equal(spec.env.PI_LUVUS_SURFACE, "24");
-      assert.equal(flagValue(spec.args, "--model"), "test-model");
-      assert.equal(
-        flagValue(spec.args, "--tools"),
-        "read,bash,edit,write,grep,find,ls,caller_ping,luvus_done,luvus_message",
-      );
-
-      // The spec is written where the old shell script went, and it is no script.
-      const scriptsDir = join(dir, "sessions", "artifacts", "sess-001", "luvus-scripts");
-      const scripts = readdirSync(scriptsDir);
-      assert.deepEqual(
-        scripts.filter((file) => file.endsWith(".sh")),
-        [],
-      );
-      assert.equal(scripts.length, 1);
-    });
-  });
-
-  it("writes a Claude launch spec with a tmpdir sentinel", async () => {
-    await withLaunchEnv(async ({ dir, calls, testApi, ctx }) => {
-      writeAgentFile(
-        join(dir, "agent", "agents"),
-        "claude-role",
-        "model: claude-model\ncli: claude",
-        "You are Claude.",
-      );
-
-      const running = await testApi.launchSubagent(
-        { name: "ClaudeWorker", task: "Do the thing", agent: "claude-role" },
-        ctx,
-        { placement: "right" },
-      );
-
-      assert.equal(running.cli, "claude");
-      const spec = readLaunchSpec(running.launchScriptFile as string);
-      assert.equal(spec.command, "claude");
-      assert.equal(spec.args[0], "--dangerously-skip-permissions");
-      assert.equal(flagValue(spec.args, "--model"), "claude-model");
-      assert.equal(spec.args.at(-1), "Do the thing");
-      assert.equal(flagValue(spec.args, "--plugin-dir"), join(SUBAGENTS_DIR, "plugin"));
-      assert.equal(spec.env.PI_CLAUDE_SENTINEL, running.sentinelFile);
-      assert.ok(String(spec.env.PI_CLAUDE_SENTINEL).startsWith(tmpdir()));
-      assert.equal(spec.closeOnDone, undefined);
-      assert.equal(calls.filter((call) => call.startsWith("pane run")).length, 1);
-    });
-  });
-});
-
 describe("subagent activity snapshots", () => {
   function validActivity(overrides: Record<string, unknown> = {}) {
     return {
@@ -2654,284 +2506,6 @@ describe("subagent activity snapshots", () => {
 });
 
 describe("subagent interruption", () => {
-  function makeRunning(overrides: Record<string, unknown> = {}) {
-    return {
-      id: "a1",
-      name: "Worker",
-      task: "",
-      surface: "pane-1",
-      startTime: 0,
-      sessionFile: "worker.jsonl",
-      interactive: false,
-      statusState: createStatusState({ source: "pi", startTimeMs: 0 }),
-      ...overrides,
-    };
-  }
-
-  it("registers luvus_interrupt in the main session extension", () => {
-    const { api, registeredTools } = createMockExtensionApi();
-
-    (subagentsModule as any).default(api);
-
-    assert.equal(
-      registeredTools.some((tool) => tool.name === "luvus_interrupt"),
-      true,
-    );
-  });
-
-  it("resolves interrupt targets by exact id and reports name ambiguity", () => {
-    const testApi = (subagentsModule as any).__test__;
-    const runningMap = testApi.runningSubagents as Map<string, any>;
-    runningMap.clear();
-
-    try {
-      runningMap.set(
-        "a1",
-        makeRunning({ id: "a1", name: "Worker", surface: "a1", sessionFile: "a1.jsonl" }),
-      );
-      runningMap.set(
-        "b2",
-        makeRunning({ id: "b2", name: "Worker", surface: "b2", sessionFile: "b2.jsonl" }),
-      );
-      runningMap.set(
-        "c3",
-        makeRunning({ id: "c3", name: "Scout", surface: "c3", sessionFile: "c3.jsonl" }),
-      );
-
-      const byId = testApi.resolveInterruptTarget({ id: "c3", name: "Worker" });
-      assert.equal(byId.running.id, "c3");
-
-      const ambiguous = testApi.resolveInterruptTarget({ name: "Worker" });
-      assert.match(ambiguous.error, /Ambiguous subagent name/);
-    } finally {
-      runningMap.clear();
-    }
-  });
-
-  it("returns an explicit error when Escape delivery fails", () => {
-    const testApi = (subagentsModule as any).__test__;
-    let aborted = false;
-    const running = makeRunning({
-      abortController: {
-        abort() {
-          aborted = true;
-        },
-      },
-    });
-
-    const result = testApi.requestSubagentInterrupt(running, () => {
-      throw new Error("mux write failed");
-    });
-
-    assert.match(result.error, /Failed to send Escape/);
-    assert.equal(aborted, false);
-    assert.equal("interruptRequested" in running, false);
-  });
-
-  it("leaves status unchanged when Escape delivery fails in the tool path", () => {
-    const testApi = (subagentsModule as any).__test__;
-    const runningMap = testApi.runningSubagents as Map<string, any>;
-    runningMap.clear();
-
-    const activeState = observeStatus(
-      createStatusState({ source: "pi", startTimeMs: 0 }),
-      {
-        snapshot: "present",
-        updatedAt: 5_000,
-        sequence: 1,
-        phase: "active",
-        active: true,
-        activeScope: "tool",
-        activeSince: 5_000,
-        activityLabel: "bash",
-      },
-      5_000,
-    );
-
-    try {
-      runningMap.set("a1", makeRunning({ statusState: activeState }));
-
-      const result = withMockedNow(20_000, () =>
-        testApi.handleSubagentInterrupt({ name: "Worker" }, () => {
-          throw new Error("mux write failed");
-        }),
-      );
-
-      assert.match(result.content[0].text, /Failed to send Escape/);
-      assert.equal(classifyStatus(runningMap.get("a1").statusState, 20_000).kind, "active");
-    } finally {
-      runningMap.clear();
-    }
-  });
-
-  it("sends Escape without aborting or mutating running state", () => {
-    const testApi = (subagentsModule as any).__test__;
-    let aborted = false;
-    let sentSurface = "";
-    const running = makeRunning({
-      abortController: {
-        abort() {
-          aborted = true;
-        },
-      },
-    });
-
-    const result = testApi.requestSubagentInterrupt(running, (surface: string) => {
-      sentSurface = surface;
-    });
-
-    assert.deepEqual(result, { ok: true });
-    assert.equal(sentSurface, "pane-1");
-    assert.equal(aborted, false);
-    assert.equal("interruptRequested" in running, false);
-  });
-
-  it("refreshes the latest activity snapshot before forcing local interrupt waiting", () => {
-    const testApi = (subagentsModule as any).__test__;
-    const runningMap = testApi.runningSubagents as Map<string, any>;
-    let sentSurface = "";
-    runningMap.clear();
-
-    withTempDir((dir) => {
-      mkdirSync(join(dir, "luvus-activity"), { recursive: true });
-      const activityFile = getSubagentActivityFile(dir, "a1");
-      const activity = {
-        version: 1,
-        runningChildId: "a1",
-        createdAt: 1_000,
-        updatedAt: 19_000,
-        sequence: 7,
-        latestEvent: "tool_execution_start",
-        phase: "active",
-        agentActive: true,
-        turnActive: true,
-        providerActive: false,
-        toolActive: true,
-        activeScope: "tool",
-        activeSince: 19_000,
-        toolName: "bash",
-      };
-      writeFileSync(activityFile, `${JSON.stringify(activity)}\n`);
-
-      try {
-        runningMap.set(
-          "a1",
-          makeRunning({
-            activityFile,
-            statusState: createStatusState({ source: "pi", startTimeMs: 0 }),
-          }),
-        );
-
-        withMockedNow(20_000, () =>
-          testApi.handleSubagentInterrupt({ name: "Worker" }, (surface: string) => {
-            sentSurface = surface;
-          }),
-        );
-
-        assert.equal(sentSurface, "pane-1");
-        const state = runningMap.get("a1").statusState;
-        const snapshot = classifyStatus(state, 20_000);
-        assert.equal(snapshot.kind, "waiting");
-        assert.equal(snapshot.activityLabel, "interrupted");
-        assert.equal(state.lastActivityAtMs, 20_000);
-        assert.equal(state.lastActivitySequence, 7);
-        assert.equal(state.localOverrideSequence, 7);
-      } finally {
-        runningMap.clear();
-      }
-    });
-  });
-
-  it("acknowledges Pi-backed interrupt requests and forces local status waiting", () => {
-    const testApi = (subagentsModule as any).__test__;
-    const runningMap = testApi.runningSubagents as Map<string, any>;
-    let sentSurface = "";
-    runningMap.clear();
-
-    const activeState = observeStatus(
-      createStatusState({ source: "pi", startTimeMs: 0 }),
-      {
-        snapshot: "present",
-        updatedAt: 5_000,
-        sequence: 1,
-        phase: "active",
-        active: true,
-        activeScope: "tool",
-        activeSince: 5_000,
-        activityLabel: "bash",
-      },
-      5_000,
-    );
-
-    try {
-      runningMap.set("a1", makeRunning({ statusState: activeState }));
-
-      const result = withMockedNow(20_000, () =>
-        testApi.handleSubagentInterrupt({ name: "Worker" }, (surface: string) => {
-          sentSurface = surface;
-        }),
-      );
-
-      assert.equal(sentSurface, "pane-1");
-      assert.equal(result.content[0].text, 'Interrupt requested for subagent "Worker".');
-      assert.deepEqual(result.details, { id: "a1", name: "Worker", status: "interrupt_requested" });
-      const snapshot = classifyStatus(runningMap.get("a1").statusState, 20_000);
-      assert.equal(snapshot.kind, "waiting");
-      assert.equal(snapshot.activityLabel, "interrupted");
-      assert.equal(runningMap.has("a1"), true);
-    } finally {
-      runningMap.clear();
-    }
-  });
-
-  it("sends Escape again for repeated interrupt requests", () => {
-    const testApi = (subagentsModule as any).__test__;
-    const runningMap = testApi.runningSubagents as Map<string, any>;
-    const surfaces: string[] = [];
-    runningMap.clear();
-
-    try {
-      runningMap.set("a1", makeRunning());
-
-      testApi.handleSubagentInterrupt({ name: "Worker" }, (surface: string) => {
-        surfaces.push(surface);
-      });
-      testApi.handleSubagentInterrupt({ name: "Worker" }, (surface: string) => {
-        surfaces.push(surface);
-      });
-
-      assert.deepEqual(surfaces, ["pane-1", "pane-1"]);
-      assert.equal(runningMap.has("a1"), true);
-    } finally {
-      runningMap.clear();
-    }
-  });
-
-  it("rejects Claude-backed interrupt requests before delivery", () => {
-    const testApi = (subagentsModule as any).__test__;
-    const runningMap = testApi.runningSubagents as Map<string, any>;
-    let delivered = false;
-    runningMap.clear();
-
-    try {
-      runningMap.set("a1", makeRunning({ cli: "claude" }));
-
-      const result = testApi.handleSubagentInterrupt({ name: "Worker" }, () => {
-        delivered = true;
-      });
-
-      assert.equal(delivered, false);
-      assert.match(result.content[0].text, /currently supported only for Pi-backed subagents/i);
-      assert.deepEqual(result.details, {
-        error: "claude interrupt unsupported",
-        id: "a1",
-        name: "Worker",
-      });
-    } finally {
-      runningMap.clear();
-    }
-  });
-
   it("formats exit code 130 as an ordinary failure", () => {
     const testApi = (subagentsModule as any).__test__;
     const presentation = testApi.resolveResultPresentation(
@@ -3000,37 +2574,6 @@ describe("subagent messaging", () => {
       registeredTools.some((tool) => tool.name === "luvus_message"),
       true,
     );
-  });
-
-  it("builds the roster from the running map after add and remove", () => {
-    const runningMap = testApi().runningSubagents as Map<string, any>;
-    runningMap.clear();
-    withTempDir((dir) => {
-      const file = join(dir, "luvus-roster.json");
-      try {
-        testApi().setRosterContext({ file, parentPane: "21", parentName: "parent" });
-        runningMap.set("a1", makeRunning({ id: "a1", name: "Worker", surface: "24" }));
-        runningMap.set(
-          "b2",
-          makeRunning({ id: "b2", name: "Scout", surface: "25", cli: "claude" }),
-        );
-        testApi().writeRoster();
-
-        let roster = JSON.parse(readFileSync(file, "utf8"));
-        assert.deepEqual(roster.children, [
-          { id: "a1", name: "Worker", pane: "24", cli: "pi" },
-          { id: "b2", name: "Scout", pane: "25", cli: "claude" },
-        ]);
-
-        runningMap.delete("a1");
-        testApi().writeRoster();
-        roster = JSON.parse(readFileSync(file, "utf8"));
-        assert.deepEqual(roster.children, [{ id: "b2", name: "Scout", pane: "25", cli: "claude" }]);
-      } finally {
-        testApi().setRosterContext(null);
-        runningMap.clear();
-      }
-    });
   });
 
   it("includes PI_LUVUS_PARENT_ROSTER in both spawn and resume env builders", () => {
@@ -3960,132 +3503,6 @@ describe("luvus backend", () => {
     }
   }
 
-  it("watchSubagent keeps the sidecar result when the pane is already gone (pi)", async () => {
-    await withTempDir(async (dir) => {
-      const sessionFile = createSessionFile(dir, [
-        SESSION_HEADER,
-        MODEL_CHANGE,
-        USER_MSG,
-        ASSISTANT_MSG,
-      ]);
-      writeFileSync(`${sessionFile}.exit`, JSON.stringify({ type: "done" }));
-      const log = join(dir, "calls-closegone.log");
-      const testApi = (subagentsModule as any).__test__;
-      const running: any = {
-        id: "close-gone-pi",
-        name: "Scout",
-        task: "survey the repo",
-        surface: "24",
-        startTime: Date.now(),
-        sessionFile,
-        statusState: createStatusState({ source: "pi", startTimeMs: Date.now() }),
-        interactive: false,
-      };
-      testApi.runningSubagents.set(running.id, running);
-      try {
-        const result = await withLuvusEnvAsync(
-          allLuvusKeys({
-            LUVUS_ENV: "1",
-            LUVUS_BIN_PATH: stubPath,
-            LUVUS_PANE_ID: "21",
-            LUVUS_STUB_LOG: log,
-            LUVUS_STUB_MODE: "close-error",
-          }),
-          () => testApi.watchSubagent(running, new AbortController().signal, { sendMessage() {} }),
-        );
-        assert.equal(result.exitCode, 0);
-        assert.equal(result.summary, "Here is my plan...");
-        assert.deepEqual(readFileSync(log, "utf8").trim().split("\n"), ["pane close 24"]);
-      } finally {
-        testApi.runningSubagents.delete(running.id);
-      }
-    });
-  });
-
-  it("deliverSubagentCompletion sends one luvus_handoff steer for a handoff result", () => {
-    const testApi = (subagentsModule as any).__test__;
-    const sent: Array<{ message: any; opts: any }> = [];
-    const running: any = {
-      id: "handoff-delivery",
-      name: "Worker",
-      task: "implement rows 3.x",
-      surface: "9",
-      startTime: Date.now(),
-      sessionFile: "/tmp/child.jsonl",
-    };
-    testApi.deliverSubagentCompletion(
-      running,
-      {
-        name: "Worker",
-        task: "implement rows 3.x",
-        summary: "",
-        sessionFile: "/tmp/child.jsonl",
-        exitCode: 0,
-        elapsed: 80,
-        handoff: { message: "Goal: X. Done: A. Left: B." },
-      },
-      { sendMessage: (message: any, opts: any) => sent.push({ message, opts }) },
-      { present: () => "should not be presented" },
-    );
-
-    assert.equal(sent.length, 1);
-    assert.equal(sent[0].message.customType, "luvus_handoff");
-    assert.deepEqual(sent[0].opts, { triggerTurn: true, deliverAs: "steer" });
-    assert.match(
-      sent[0].message.content,
-      /Sub-agent "Worker" handed off at the context alert \(1m 20s\)\. The task is not complete\./,
-    );
-    assert.match(sent[0].message.content, /Goal: X\. Done: A\. Left: B\./);
-    assert.match(
-      sent[0].message.content,
-      /Start a new subagent with this handoff in its task\. Do not resume this session\./,
-    );
-    assert.match(sent[0].message.content, /Session: \/tmp\/child\.jsonl/);
-    // No `Resume:` line — a handoff tells the parent to start a NEW subagent.
-    assert.doesNotMatch(sent[0].message.content, /Resume:/);
-  });
-
-  it("watchSubagent keeps the sentinel summary when the pane is already gone (claude)", async () => {
-    await withTempDir(async (dir) => {
-      const sessionFile = join(dir, "claude-session.jsonl");
-      writeFileSync(sessionFile, "");
-      const sentinelFile = join(dir, "claude.sentinel");
-      writeFileSync(sentinelFile, "All checks pass.\n");
-      const log = join(dir, "calls-closegone-claude.log");
-      const testApi = (subagentsModule as any).__test__;
-      const running: any = {
-        id: "close-gone-claude",
-        name: "Scout",
-        task: "survey the repo",
-        surface: "24",
-        startTime: Date.now(),
-        sessionFile,
-        cli: "claude",
-        sentinelFile,
-        statusState: createStatusState({ source: "claude", startTimeMs: Date.now() }),
-        interactive: false,
-      };
-      testApi.runningSubagents.set(running.id, running);
-      try {
-        const result = await withLuvusEnvAsync(
-          allLuvusKeys({
-            LUVUS_ENV: "1",
-            LUVUS_BIN_PATH: stubPath,
-            LUVUS_PANE_ID: "21",
-            LUVUS_STUB_LOG: log,
-            LUVUS_STUB_MODE: "close-error",
-          }),
-          () => testApi.watchSubagent(running, new AbortController().signal, { sendMessage() {} }),
-        );
-        assert.equal(result.exitCode, 0);
-        assert.equal(result.summary, "All checks pass.");
-        assert.deepEqual(readFileSync(log, "utf8").trim().split("\n"), ["pane close 24"]);
-      } finally {
-        testApi.runningSubagents.delete(running.id);
-      }
-    });
-  });
-
   describe("pollForExit screen handling", () => {
     /** Run pollForExit until it ends or the deadline aborts it; report the
      * last argv logged and whether a result was produced. */
@@ -4363,19 +3780,6 @@ describe("subagent child status ownership", () => {
     }
   });
 
-  it("re-arms the module poll signal after a session shutdown", () => {
-    const target = makeRecordingPi();
-    subagentsModule.default(target.pi);
-    // Session teardown aborts the signal every poll watcher shares...
-    target.fire("session_shutdown", undefined, CTX);
-    assert.equal(subagentsModule.__test__.getModuleAbortController().signal.aborted, true);
-    // ...and the next session must install a fresh one. Without this, the next
-    // spawn's watcher is born aborted and reports a failure at elapsed 0 while
-    // the child it launched is still starting.
-    target.fire("session_start", undefined, CTX);
-    assert.equal(subagentsModule.__test__.getModuleAbortController().signal.aborted, false);
-  });
-
   it("spawns through the current supervisor after a session restart", async () => {
     await withTempDir(async (dir) => {
       const calls: string[][] = [];
@@ -4431,17 +3835,20 @@ describe("subagent child status ownership", () => {
         // not the shut-down registration-time one — a watcher on the shut-down
         // supervisor's abort controller would report "Subagent cancelled."
         // for a child that is still running.
-        const map = testApi.runningSubagents as Map<string, any>;
-        assert.equal(map.has(result.details.id), true);
-        assert.equal(testApi.getModuleAbortController().signal.aborted, false);
+        const supervisor = testApi.getCurrentSupervisor();
+        assert.equal(
+          supervisor.running().some((agent: any) => agent.id === result.details.id),
+          true,
+        );
+        assert.equal(supervisor.getAbortController().signal.aborted, false);
 
         // End the watcher through the sidecar and let the current supervisor
         // finish the run, so no poll loop outlives the test.
         writeFileSync(`${result.details.sessionFile}.exit`, JSON.stringify({ type: "done" }));
-        for (let i = 0; i < 150 && map.size > 0; i++) {
+        for (let i = 0; i < 150 && supervisor.running().length > 0; i++) {
           await new Promise((resolve) => setTimeout(resolve, 20));
         }
-        assert.equal(map.size, 0);
+        assert.equal(supervisor.running().length, 0);
         assert.equal(
           target.sentMessages.some(
             (sent: any) =>

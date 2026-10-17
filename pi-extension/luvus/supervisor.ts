@@ -291,48 +291,9 @@ export interface Supervisor {
   /** Stop every watcher, both refresh intervals and the event stream. Final. */
   shutdown(): void;
   readonly isShutdown: boolean;
-  // Temporary seams for test/test.ts until its lifecycle tests move to the
-  // supervisor interface (task row 1.3 removes them).
-  readonly runningSubagents: Map<string, RunningSubagent>;
-  launchSubagent(
-    params: Static<typeof SubagentParams>,
-    ctx: SupervisorContext,
-    options?: { surface?: string; placement?: SurfacePlacement },
-  ): Promise<RunningSubagent>;
-  watchSubagent(
-    running: RunningSubagent,
-    signal: AbortSignal,
-    send: SendFn,
-  ): Promise<SubagentResult>;
-  deliverSubagentCompletion(
-    running: RunningSubagent,
-    result: SubagentResult,
-    send: SendFn,
-    options: {
-      present: () => string;
-      extraDetails?: Record<string, unknown>;
-      pingExtraDetails?: Record<string, unknown>;
-    },
-  ): void;
-  deliverSubagentError(
-    running: RunningSubagent,
-    err: unknown,
-    send: SendFn,
-    options: { contentPrefix: string; extraDetails?: Record<string, unknown> },
-  ): void;
-  writeRoster(): void;
-  setRosterContext(ctx: { file: string; parentPane: string; parentName: string } | null): void;
+  /** The poll signal shared by this supervisor's watchers (tests prove it is live). */
   getAbortController(): AbortController;
   renderSubagentWidgetLines(agents: RunningSubagent[], width: number): string[];
-  resolveInterruptTarget(params: {
-    id?: string;
-    name?: string;
-  }): { running: RunningSubagent } | { error: string };
-  requestSubagentInterrupt(
-    running: RunningSubagent,
-    sendEscapeKey: (surface: string) => void,
-  ): { ok: true } | { error: string };
-  updateWidget(): void;
 }
 
 /** Tools that are gated by `spawning: false` */
@@ -1822,7 +1783,6 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
   }
 
   return {
-    runningSubagents,
     get isShutdown() {
       return shutdownDone;
     },
@@ -1988,20 +1948,9 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
       eventStream?.shutdown();
     },
 
-    launchSubagent,
-    watchSubagent,
-    deliverSubagentCompletion,
-    deliverSubagentError,
-    writeRoster,
-    setRosterContext(ctx) {
-      rosterContext = ctx;
-    },
     getAbortController(): AbortController {
       return abortController;
     },
     renderSubagentWidgetLines,
-    resolveInterruptTarget,
-    requestSubagentInterrupt,
-    updateWidget,
   };
 }

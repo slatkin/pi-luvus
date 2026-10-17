@@ -40,7 +40,6 @@ import {
   getShellReadyDelayMs,
   observeRunningSubagent,
   readParentMessages,
-  requestSubagentInterrupt,
   resolveDenyTools,
   resolveEffectiveInteractive,
   resolveEffectiveSessionMode,
@@ -414,16 +413,6 @@ export const __test__ = {
   formatWidgetRightLabel,
   observeRunningSubagent,
   resolveDenyTools,
-  resolveInterruptTarget(params: { id?: string; name?: string }) {
-    return currentSupervisor().resolveInterruptTarget(params);
-  },
-  requestSubagentInterrupt,
-  handleSubagentInterrupt(
-    params: { id?: string; name?: string },
-    sendEscapeKey?: (surface: string) => void,
-  ) {
-    return currentSupervisor().interrupt(params, sendEscapeKey);
-  },
   resolveResultPresentation,
   resolveResumeLaunchBehavior,
   buildRosterPayload,
@@ -442,49 +431,11 @@ export const __test__ = {
   ) {
     drainAndRemoveParentMessages(running, (message, options) => pi.sendMessage(message, options));
   },
-  writeRoster() {
-    currentSupervisor().writeRoster();
-  },
-  setRosterContext(ctx: { file: string; parentPane: string; parentName: string } | null) {
-    currentSupervisor().setRosterContext(ctx);
-  },
-  get runningSubagents(): Map<string, RunningSubagent> {
-    return currentSupervisor().runningSubagents;
+  getCurrentSupervisor(): Supervisor {
+    return currentSupervisor();
   },
   formatElapsed,
   getDefaultSessionDirFor,
-  getModuleAbortController(): AbortController {
-    return currentSupervisor().getAbortController();
-  },
-  watchSubagent(
-    running: RunningSubagent,
-    signal: AbortSignal,
-    pi: { sendMessage: (m: any, o: any) => unknown },
-  ) {
-    return currentSupervisor().watchSubagent(running, signal, (message, options) =>
-      pi.sendMessage(message, options),
-    );
-  },
-  deliverSubagentCompletion(
-    running: RunningSubagent,
-    result: any,
-    pi: { sendMessage: (m: any, o: any) => unknown },
-    options: any,
-  ) {
-    currentSupervisor().deliverSubagentCompletion(
-      running,
-      result,
-      (message, options) => pi.sendMessage(message, options),
-      options,
-    );
-  },
-  launchSubagent(
-    params: any,
-    ctx: any,
-    options?: { surface?: string; placement?: SurfacePlacement },
-  ) {
-    return currentSupervisor().launchSubagent(params, ctx, options);
-  },
 };
 
 /**
