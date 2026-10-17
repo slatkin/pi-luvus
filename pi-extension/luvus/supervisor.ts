@@ -72,6 +72,7 @@ import {
   type ActivityReadResult,
   type SubagentActivityState,
 } from "./activity.ts";
+import { resolveDenyTools } from "./child-env.ts";
 import { capSummary, SCREEN_SUMMARY_CHARS } from "./report-cap.ts";
 import {
   IDLE_NUDGE_TEXT,
@@ -302,35 +303,7 @@ export interface Supervisor {
   renderSubagentWidgetLines(agents: RunningSubagent[], width: number): string[];
 }
 
-/** Tools that are gated by `spawning: false` */
-const SPAWNING_TOOLS = new Set(["luvus_spawn", "luvus_interrupt", "luvus_list", "luvus_resume"]);
-
-/**
- * Resolve the effective set of denied tool names from agent defaults.
- * `spawning: false` expands to all SPAWNING_TOOLS.
- * `deny-tools` adds individual tool names on top.
- */
-export function resolveDenyTools(agentDefs: AgentDefaults | null): Set<string> {
-  const denied = new Set<string>();
-  if (!agentDefs) return denied;
-
-  // spawning: false → deny all spawning tools
-  if (agentDefs.spawning === false) {
-    for (const t of SPAWNING_TOOLS) denied.add(t);
-  }
-
-  // deny-tools: explicit list
-  if (agentDefs.denyTools) {
-    for (const t of agentDefs.denyTools
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)) {
-      denied.add(t);
-    }
-  }
-
-  return denied;
-}
+export { resolveDenyTools } from "./child-env.ts";
 
 export function resolveSubagentPaths(
   params: Static<typeof SubagentParams>,
