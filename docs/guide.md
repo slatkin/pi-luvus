@@ -26,37 +26,6 @@ A pi session with a name keeps pi's own title `π - <name> - <cwd>`. The extensi
 
 ---
 
-## Resumable session titles (Luvus module)
-
-A live pi pane publishes its OSC title to Luvus. A finished pi session has no pane, so it has no title. Its AGENTS history row then shows only the project folder. The optional module in [`luvus-module/`](../luvus-module/) fills that gap. It titles each resumable session with the session name, or with the first prompt when the session has no name. The title uses the same 48-character cut as the live pane title.
-
-### Install
-
-The extension links the module by itself on start. It checks `module info pi-luvus.pane-titles` and runs `module link` when the module is absent, points at another checkout, or reports an older version. Subagent children never link. A failed check stays quiet and the titles stay missing until the next start.
-
-To link it yourself, set `module.autolink` to `false` and run:
-
-```bash
-luvus module link /ABSOLUTE/path/to/pi-luvus/luvus-module
-```
-
-Use an absolute path. A relative path fails, because the Luvus server resolves it against its own working directory, not the working directory of the shell. For an installed package, use the absolute path of its `luvus-module` directory.
-
-The module repaints the titles at Luvus startup, on every agent status change, and when a pane closes. A closed pane is the moment a pi session becomes a resumable row.
-
-The module reads the session files from `$PI_CODING_AGENT_DIR/sessions`. The default is `~/.pi/agent/sessions`. If you set `PI_CODING_AGENT_DIR`, the Luvus server must see the same value. With no matching value, the module reads the default path and finds no sessions.
-
-### Remove
-
-```bash
-luvus module unlink pi-luvus.pane-titles
-luvus ui agent-title clear
-```
-
-`luvus module unlink` removes the module from the registry. The id is `pi-luvus.pane-titles`, from `luvus-module/luvus-module.toml`. `luvus ui agent-title clear` removes the module-provided titles from the AGENTS sidebar. Run both to remove the module and its titles.
-
----
-
 ## Resume pi sessions
 
 Luvus binds the id of every pi session to its pane (see [Live pi status in Luvus](#live-pi-status-in-luvus)). When the pane closes, the session file stays on disk, and the session becomes a resumable session.
@@ -85,7 +54,7 @@ To find the pane that holds a session, run `luvus agent get <pane>` and read its
 
 The resumed pane runs plain `pi --session <id>`. pi loads the installed extension and re-binds the same session id to the new pane. The session status is `idle`.
 
-The AGENTS history row shows only the project folder. For a readable row, link the optional titles module. It titles each resumable session with its name or its first prompt. Read [Resumable session titles (Luvus module)](#resumable-session-titles-luvus-module).
+The AGENTS history row shows only the project folder.
 
 ---
 

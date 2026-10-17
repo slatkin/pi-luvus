@@ -528,7 +528,6 @@ describe("status.ts", () => {
       enabled: false,
       lineLimit: 4,
       notifyEnabled: true,
-      moduleAutolink: true,
       contextAlert: { enabled: false, threshold: { kind: "tokens", value: 200000 } },
     });
   });
@@ -552,25 +551,6 @@ describe("status.ts", () => {
     assert.throws(() => parseStatusConfig({ notify: "yes" }), /notify must be an object/);
   });
 
-  it("parses the optional module.autolink, default true", () => {
-    assert.equal(parseStatusConfig({}).moduleAutolink, true);
-    assert.equal(parseStatusConfig({ status: { enabled: true } }).moduleAutolink, true);
-    assert.equal(parseStatusConfig({ module: { autolink: false } }).moduleAutolink, false);
-    assert.equal(parseStatusConfig({ module: {} }).moduleAutolink, true);
-  });
-
-  it("rejects an invalid or unsupported module block", () => {
-    assert.throws(
-      () => parseStatusConfig({ module: { autolink: "yes" } }),
-      /module\.autolink must be a boolean/,
-    );
-    assert.throws(
-      () => parseStatusConfig({ module: { autolink: true, extra: 1 } }),
-      /module has unsupported key\(s\): extra/,
-    );
-    assert.throws(() => parseStatusConfig({ module: "yes" }), /module must be an object/);
-  });
-
   it("loads a valid config file", () => {
     const examplePath = fileURLToPath(new URL("../config.json.example", import.meta.url));
     const config = loadStatusConfig(examplePath);
@@ -579,7 +559,6 @@ describe("status.ts", () => {
       enabled: true,
       lineLimit: 4,
       notifyEnabled: true,
-      moduleAutolink: true,
       contextAlert: { enabled: false, threshold: { kind: "tokens", value: 200000 } },
     });
   });
@@ -595,7 +574,6 @@ describe("status.ts", () => {
         enabled: true,
         lineLimit: 4,
         notifyEnabled: true,
-        moduleAutolink: true,
         contextAlert: { enabled: false, threshold: { kind: "tokens", value: 200000 } },
       });
     });

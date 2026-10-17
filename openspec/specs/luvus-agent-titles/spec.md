@@ -30,17 +30,5 @@ In a subagent child, the extension SHALL NOT set the first-prompt title. The chi
 - **WHEN** a subagent child starts with a task
 - **THEN** its pane title is `<name> — <task>`, not a first-prompt title
 
-### Requirement: Resumable pi sessions show a title
-The package SHALL ship a Luvus module that publishes AGENTS titles for resumable pi sessions: the session name if the session has one, otherwise the first prompt (same rules as above). The module SHALL refresh titles when the Luvus session starts, when an agent status changes, and when a pane closes.
-
-#### Scenario: History row after a session ends
-- **WHEN** the module is linked and a pi session with first prompt "Map the auth flow" has ended
-- **THEN** the resumable row for that session in the AGENTS history shows `Map the auth flow`
-
-#### Scenario: Named session in history
-- **WHEN** a resumable pi session has the name "auth refactor"
-- **THEN** its history row shows `auth refactor`
-
-#### Scenario: Module not linked
-- **WHEN** the module is not linked
-- **THEN** resumable pi rows show the project folder, as before, and the extension works normally
+### Requirement: Resumable pi sessions show the project folder
+The package ships no Luvus module. A finished pi session has no live pane and no title, so its AGENTS history row shows only the project folder. The extension works normally.

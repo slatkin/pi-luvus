@@ -33,12 +33,6 @@ Each report is a Luvus status lease with a 300-second TTL. The extension renews 
 
 A subagent publishes `done` or `blocked` when it finishes. External orchestrators wait on that status (see [External orchestrators](docs/guide.md#external-orchestrators-claude-code)). For the full details, read [Live pi status in Luvus](docs/guide.md#live-pi-status-in-luvus).
 
-### Resumable session titles
-
-A resumable pi session has no live pane and no OSC title. Luvus then shows only the project folder on the AGENTS history row. The optional [`luvus-module/`](luvus-module/) gives the row a title from the session name, or the first prompt when the session has no name (the same 48-character rule as the live pane title). Read [Resumable session titles (Luvus module)](docs/guide.md#resumable-session-titles-luvus-module).
-
-The extension links the module by itself on start, and re-links it after an upgrade loads a new manifest. Set `module.autolink` to `false` to keep manual control.
-
 ### Resume pi sessions
 
 Luvus binds each pi session id to its pane. After the pane closes, the session stays resumable: `luvus agent sessions` lists it, and `luvus agent resume <session id>` reopens it in a new pane. Read [Resume pi sessions](docs/guide.md#resume-pi-sessions).
@@ -54,7 +48,6 @@ The extension reads `config.json` from `~/.pi/agent/extensions/pi-luvus/` (under
 | Key              | Type    | Default | Description                                                                                                                    |
 | ---------------- | ------- | ------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `notify.enabled` | boolean | `true`  | Turns the turn-end notification off. Set it to `false` if Luvus already cues your pi panes for status changes.                  |
-| `module.autolink` | boolean | `true` | Links the bundled Luvus module on start. Set it to `false` to link the module yourself. |
 | `contextAlert.enabled` | boolean | `false` | Turns the subagent context alert on. When it is on, a subagent child whose context usage reaches the threshold gets one steer message that tells it to stop and hand off with `luvus_done` and its `handoff` parameter. |
 | `contextAlert.threshold` | number \| string | `200000` | The alert threshold: a context token count, or a percentage of the model's context window as a string (`"80%"`). Select a value below the compaction point — a threshold at or above it never fires. |
 
