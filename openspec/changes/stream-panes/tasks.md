@@ -2,10 +2,10 @@
 
 ## 1. Stream state and transport
 
-- [ ] 1.1 Add `pi-extension/luvus/stream-state.ts` with the per-stream replay ring: bounded by line count and characters, reset on `turn_start`, and append helpers for thinking text and tool start/update/end. Verify `test/stream-state.test.ts` covers the caps, the reset, and a failed tool line.
-- [ ] 1.2 Add the socket server to the same module: private runtime directory, short hashed path, unlink before listen, hello record selecting a stream, ring replay on hello, live fan-out only to that stream's clients, and detach when a connection closes. Verify tests connect real clients to a temp socket (no Luvus) and assert replay, fan-out, and detach.
-- [ ] 1.3 Coalesce thinking deltas and tool output: at most one flush per 50 ms or on a newline, and nothing written when a stream has no client. Verify a fake-timer test asserts one write per window and no write without a client.
-- [ ] 1.4 Add event wiring in `index.ts` for `message_update` (`thinking_delta`), `tool_execution_start`, `tool_execution_update`, and `tool_execution_end`, mapping each to formatted records. Verify a test feeding a fake event sequence asserts the exact records on the socket.
+- [x] 1.1 Add `pi-extension/luvus/stream-state.ts` with the per-stream replay ring: bounded by line count and characters, reset on `turn_start`, and append helpers for thinking text and tool start/update/end. Verify `test/stream-state.test.ts` covers the caps, the reset, and a failed tool line.
+- [x] 1.2 Add the socket server to the same module: private runtime directory, short hashed path, unlink before listen, hello record selecting a stream, ring replay on hello, live fan-out only to that stream's clients, and detach when a connection closes. Verify tests connect real clients to a temp socket (no Luvus) and assert replay, fan-out, and detach.
+- [x] 1.3 Coalesce thinking deltas and tool output: at most one flush per 50 ms or on a newline, and nothing written when a stream has no client. Verify a fake-timer test asserts one write per window and no write without a client.
+- [x] 1.4 Add event wiring in `index.ts` for `message_update` (`thinking_delta`), `tool_execution_start`, `tool_execution_update`, and `tool_execution_end`, mapping each to formatted records. Verify a test feeding a fake event sequence asserts the exact records on the socket.
 
 ## 2. Transcript projection
 
