@@ -30,8 +30,9 @@ export default [
     },
   },
   {
-    // The Claude stop hook is a plain Node script, so it needs Node globals.
-    files: ["**/*.js"],
+    // The Claude stop hook and the stream tailer are plain Node scripts, so
+    // they need Node globals.
+    files: ["**/*.js", "**/*.mjs"],
     languageOptions: { globals: globals.node },
   },
 ];
