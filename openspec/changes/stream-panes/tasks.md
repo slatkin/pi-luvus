@@ -9,9 +9,9 @@
 
 ## 2. Transcript projection
 
-- [ ] 2.1 Add `pi-extension/luvus/stream-projection.ts` with transcript lookup from a `tui`-shaped root: return the chat container, its parent, and its index; return a mismatch when the shape is not exactly one candidate. Verify `test/stream-projection.test.ts` covers a matching fake layout and three mismatches.
-- [ ] 2.2 Add the filter view: while `tools` is attached drop tool components (and a directly preceding spacer), while `thinking` is attached replace each assistant component with a shell holding only its text slots, and cache the visible list by attach state, source child identities, and assistant message identities. Verify tests assert rendered lines for thinking-only, text+thinking, and tool-row cases.
-- [ ] 2.3 Add install and uninstall: replace the chat container's slot in its parent, restore the identical object on detach, invalidate and request a render, and warn once per session on a layout mismatch while leaving the transcript untouched. Verify tests assert the parent's child is the original object after uninstall and that a repeated mismatch warns once.
+- [x] 2.1 Add `pi-extension/luvus/stream-projection.ts` with transcript lookup from a `tui`-shaped root: return the chat container, its parent, and its index; return a mismatch when the shape is not exactly one candidate. Verify `test/stream-projection.test.ts` covers a matching fake layout and three mismatches.
+- [x] 2.2 Add the filter view: while `tools` is attached drop tool components (and a directly preceding spacer), while `thinking` is attached replace each assistant component with a shell holding only its text slots, and cache the visible list by attach state, source child identities, and assistant message identities. Verify tests assert rendered lines for thinking-only, text+thinking, and tool-row cases.
+- [x] 2.3 Add install and uninstall: replace the chat container's slot in its parent, restore the identical object on detach, invalidate and request a render, and warn once per session on a layout mismatch while leaving the transcript untouched. Verify tests assert the parent's child is the original object after uninstall and that a repeated mismatch warns once.
 
 ## 3. Command and panes
 
