@@ -3,7 +3,13 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { createStreamHub, toolOutputText, type StreamHub } from "./stream-state.ts";
+import {
+  createStreamHub,
+  isStreamName,
+  toolOutputText,
+  type StreamHub,
+  type StreamName,
+} from "./stream-state.ts";
 import { keyHint } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Box, Text, truncateToWidth } from "@earendil-works/pi-tui";
@@ -18,10 +24,13 @@ import {
   sendEscape,
   readScreen,
   runInPane,
+  splitPane,
+  namePane,
   agentPrompt,
   parseSurfacePlacement,
   type SurfacePlacement,
 } from "./luvus.ts";
+import { streamTailScriptPath, tailerCommandLine } from "./launch.ts";
 import { UhpEventStream } from "./uhp-events.ts";
 import {
   createSupervisor,
@@ -88,6 +97,165 @@ let latestCtx: ExtensionContext | null = null;
  * the first attach (unit 3).
  */
 let streamHub: StreamHub | undefined;
+
+/**
+ * Follower panes this session opened, per stream. `/stream close` closes them
+ * and clears the record; a stream whose client count drops to zero (its pane
+ * closed) also forgets the record, so a later request can open a fresh pane.
+ */
+const streamPanes = new Map<StreamName, string>();
+
+/**
+ * The session's stream hub, created on first use. `onClientsChanged` is the
+ * detach signal: when a stream's last client disappears (its pane closed),
+ * forget the pane recorded for it so a repeat request opens a new pane.
+ */
+function ensureStreamHub(sessionId: string | undefined): StreamHub {
+  streamHub ??= createStreamHub({
+    sessionId,
+    onClientsChanged: (stream, count) => {
+      if (count === 0) streamPanes.delete(stream);
+    },
+  });
+  return streamHub;
+}
+
+/** Whether a stream is attached: a pane this session opened, or a live client. */
+function streamAttached(stream: StreamName): boolean {
+  return streamPanes.has(stream) || (streamHub?.isAttached(stream) ?? false);
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** Dependencies of the `/stream` command handler, resolved per call. */
+export interface StreamCommandDeps {
+  notify: (text: string, level: "info" | "warning" | "error") => void;
+  /** The Luvus pane this pi process runs in, when known. */
+  paneId: string | undefined;
+  /** Session id seeding the stream socket name, when a session exists. */
+  sessionId: string | undefined;
+}
+
+/**
+ * The `/stream` command: open the `thinking` and/or `tools` follower panes,
+ * report the attached state, or close the panes this session opened. An
+ * unrecognised argument reports the accepted arguments and changes nothing;
+ * a repeat request reports that the stream is already attached.
+ */
+export async function handleStreamCommand(args: string, deps: StreamCommandDeps): Promise<void> {
+  const arg = args.trim().toLowerCase();
+
+  if (arg === "") {
+    deps.notify(
+      `Streams — thinking: ${streamAttached("thinking") ? "attached" : "not attached"}, ` +
+        `tools: ${streamAttached("tools") ? "attached" : "not attached"}`,
+      "info",
+    );
+    return;
+  }
+
+  if (arg === "close") {
+    closeStreamPanes(deps.notify);
+    return;
+  }
+
+  let requested: StreamName[];
+  if (arg === "both") {
+    requested = ["thinking", "tools"];
+  } else if (isStreamName(arg)) {
+    requested = [arg];
+  } else {
+    requested = [];
+  }
+  if (requested.length === 0) {
+    deps.notify(
+      `Unknown stream argument "${args.trim()}". Accepted: thinking, tools, both, close.`,
+      "warning",
+    );
+    return;
+  }
+
+  const pending = requested.filter((stream) => !streamPanes.has(stream));
+  for (const stream of requested) {
+    if (!pending.includes(stream)) {
+      deps.notify(`The ${stream} stream is already attached.`, "info");
+    }
+  }
+  if (pending.length === 0) return;
+
+  const paneId = deps.paneId;
+  if (!paneId) {
+    deps.notify("Opening a stream requires a Luvus pane. Start pi inside a Luvus pane.", "warning");
+    return;
+  }
+
+  const hub = ensureStreamHub(deps.sessionId);
+  try {
+    await hub.start();
+  } catch (error) {
+    deps.notify(`Cannot start the stream socket: ${errorText(error)}`, "error");
+    return;
+  }
+
+  const commandLine = (stream: StreamName) =>
+    tailerCommandLine(hub.socketPath, stream, streamTailScriptPath());
+
+  for (const stream of pending) {
+    // The tools pane splits below the thinking pane when one exists (recorded
+    // earlier or just created); otherwise to the right of the pi pane.
+    const thinkingPane = streamPanes.get("thinking");
+    const fromThinking = stream === "tools" && thinkingPane !== undefined;
+    const base = fromThinking ? thinkingPane : paneId;
+    const direction = fromThinking ? "down" : "right";
+    try {
+      const pane = splitPane(base, direction);
+      try {
+        namePane(pane, stream);
+      } catch {
+        // Naming is cosmetic; the pane works unnamed.
+      }
+      try {
+        runInPane(pane, commandLine(stream));
+      } catch (error) {
+        try {
+          closeSurface(pane);
+        } catch {
+          // The split already failed to hold the pane; nothing to add.
+        }
+        throw error;
+      }
+      streamPanes.set(stream, pane);
+      deps.notify(`The ${stream} stream is attached (pane ${pane}).`, "info");
+    } catch (error) {
+      deps.notify(`Cannot open the ${stream} stream: ${errorText(error)}`, "error");
+    }
+  }
+}
+
+/**
+ * Close the follower panes this session opened and forget them. Detach itself
+ * is inferred from the socket: a closed pane's tailer drops its connection.
+ */
+function closeStreamPanes(notify: StreamCommandDeps["notify"]): void {
+  const entries = [...streamPanes.entries()];
+  if (entries.length === 0) {
+    notify("No stream panes are open.", "info");
+    return;
+  }
+  let closed = 0;
+  for (const [stream, pane] of entries) {
+    try {
+      closeSurface(pane);
+      closed += 1;
+    } catch (error) {
+      notify(`Cannot close the ${stream} pane (${pane}): ${errorText(error)}`, "warning");
+    }
+    streamPanes.delete(stream);
+  }
+  notify(`Closed ${closed} stream pane${closed === 1 ? "" : "s"}.`, "info");
+}
 
 /** Wire pi turn and tool events to one stream hub. */
 export function registerStreamEventHandlers(
@@ -457,6 +625,17 @@ export const __test__ = {
     return currentSupervisor();
   },
   getDefaultSessionDirFor,
+  /** Copy of the follower pane records, for tests. */
+  streamPaneEntries(): Array<[StreamName, string]> {
+    return [...streamPanes];
+  },
+  /** Reset stream command state between tests: records and the hub. */
+  async resetStreamState(): Promise<void> {
+    streamPanes.clear();
+    const hub = streamHub;
+    streamHub = undefined;
+    await hub?.close();
+  },
 };
 
 /**
@@ -503,7 +682,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
     // with a fresh one so a spawn in this session is not born with an
     // aborted poll signal or a stopped event stream.
     if (getSupervisor()?.isShutdown) createSupervisorInstance();
-    streamHub ??= createStreamHub({ sessionId: ctx.sessionManager.getSessionId() });
+    ensureStreamHub(ctx.sessionManager.getSessionId());
   });
 
   // Clean up on session shutdown
@@ -961,6 +1140,18 @@ export default function subagentsExtension(pi: ExtensionAPI) {
           "warning",
         );
       }
+    },
+  });
+
+  // /stream command — attach or detach stream follower panes
+  pi.registerCommand("stream", {
+    description: "Attach thinking/tools follower panes: /stream [thinking|tools|both|close]",
+    handler: async (args, ctx) => {
+      await handleStreamCommand(args, {
+        notify: (text, level) => ctx.ui.notify(text, level),
+        paneId: process.env.LUVUS_PANE_ID,
+        sessionId: ctx?.sessionManager?.getSessionId?.(),
+      });
     },
   });
 

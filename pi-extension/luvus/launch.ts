@@ -10,7 +10,9 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { cleanTitleText, cutPromptTitle } from "./live-title.ts";
+import type { StreamName } from "./stream-state.ts";
 
 /** Launch spec version written by `writeLaunchSpec`; readers reject others. */
 export const LAUNCH_SPEC_VERSION = 1;
@@ -154,6 +156,26 @@ function assertPaneToken(value: string): void {
  */
 export function paneCommandLine(cliPath: string, specPath: string, promptPath?: string): string {
   const tokens = [cliPath, "run", specPath, ...(promptPath !== undefined ? [promptPath] : [])];
+  for (const token of tokens) assertPaneToken(token);
+  return ["node", ...tokens.map((token) => `"${token}"`)].join(" ");
+}
+
+/** Path of the stream tailer script, next to this module. */
+export function streamTailScriptPath(): string {
+  return join(dirname(fileURLToPath(import.meta.url)), "stream-tail.mjs");
+}
+
+/**
+ * Build the command line that runs the stream tailer in a follower pane: bare
+ * `node`, then double-quoted tokens, rejecting any token a shell would expand —
+ * the same shell-neutral shape as `paneCommandLine`.
+ */
+export function tailerCommandLine(
+  socketPath: string,
+  stream: StreamName,
+  scriptPath: string = streamTailScriptPath(),
+): string {
+  const tokens = [scriptPath, "--socket", socketPath, "--stream", stream];
   for (const token of tokens) assertPaneToken(token);
   return ["node", ...tokens.map((token) => `"${token}"`)].join(" ");
 }
