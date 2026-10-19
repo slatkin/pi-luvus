@@ -22,7 +22,7 @@
 
 ## 3b. Projection wiring
 
-- [ ] 3b.1 Wire `StreamProjection` install/uninstall to the attach state in `index.ts`: install the projection when any stream first attaches, refresh it when the attach state changes, and uninstall when the last stream detaches, using the zero-height `ctx.ui.setWidget` factory to obtain `tui`; a layout mismatch warns once and leaves the transcript untouched. Verify a test with a fake `tui` layout and fake hub asserts install on first attach, refresh on state change, and identical-object restore on last detach.
+- [x] 3b.1 Wire `StreamProjection` install/uninstall to the attach state in `index.ts`: install the projection when any stream first attaches, refresh it when the attach state changes, and uninstall when the last stream detaches, using the zero-height `ctx.ui.setWidget` factory to obtain `tui`; a layout mismatch warns once and leaves the transcript untouched. Verify a test with a fake `tui` layout and fake hub asserts install on first attach, refresh on state change, and identical-object restore on last detach.
 
 ## 4. Tailer and documentation
 
