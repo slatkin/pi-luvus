@@ -82,6 +82,29 @@ Set `notify.enabled` to `false` in `config.json` to turn these notifications off
 
 ---
 
+## Stream panes
+
+The `/stream` command moves live model output out of the main transcript and into follower panes. It works only when pi runs inside a Luvus pane; without one, the command warns and does nothing.
+
+The command takes one argument:
+
+| Argument   | Effect                                        |
+| ---------- | --------------------------------------------- |
+| `thinking` | Opens the thinking follower pane              |
+| `tools`    | Opens the tools follower pane                 |
+| `both`     | Opens both panes                              |
+| `close`    | Closes the follower panes this session opened |
+
+With no argument, `/stream` reports which streams are attached. An unrecognised argument reports the accepted arguments and changes nothing. Opening an attached stream again creates no second pane and reports that it is already attached.
+
+The thinking pane splits to the right of the pi pane. The tools pane splits below the thinking pane when one exists, and to the right of the pi pane when it does not. The panes are named `thinking` and `tools`. Focus stays on the pi pane.
+
+Each pane runs a small tailer that connects to the session's stream socket and prints plain lines. The thinking pane shows the assistant's thinking text as it streams. The tools pane shows one line when a tool call starts, its output as it arrives, and a completion line that marks a failed call. A pane opened mid-turn first replays the current turn, so it is not blank.
+
+While a stream is attached, the transcript omits that stream's content: thinking blocks contribute no lines while the thinking stream is attached, and tool rows are absent while the tools stream is attached. Everything else renders as before, including earlier history. Closing a pane detaches its stream, and the transcript is restored at once; `/stream close` detaches every stream by closing the panes this session opened.
+
+---
+
 ## External orchestrators (Claude Code)
 
 Install the `pi-luvus` skill first (see the [README](../README.md#external-orchestrators-claude-code)).
