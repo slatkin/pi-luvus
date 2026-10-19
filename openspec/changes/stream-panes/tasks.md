@@ -15,10 +15,10 @@
 
 ## 3. Command and panes
 
-- [ ] 3.1 Add the `/stream` command in `index.ts`: parse `thinking`, `tools`, `both`, `close`, and no argument; report attached state; report accepted arguments for anything else; make a repeat request idempotent. Verify `test/stream-command.test.ts` covers each argument with a fake `ctx.ui.notify`.
-- [ ] 3.2 Add pane creation: thinking splits right of the pi pane, tools splits below the thinking pane (or right when it is the only pane), both panes are named, focus stays on the pi pane, and the recorded pane ids are closed by `/stream close`. Verify a test with `__setLuvusExecForTests__` asserts the split order, the `--right`/`--down` flags, the names, and the close calls.
-- [ ] 3.3 Add the tailer command line builder, using bare `node`, double-quoted tokens, and rejection of tokens a shell would expand. Verify unit tests cover a normal path and a rejected path.
-- [ ] 3.4 Refuse to open a stream when no Luvus pane id is known, leaving state unchanged. Verify a test with the pane id unset asserts the warning and an unchanged attach state.
+- [x] 3.1 Add the `/stream` command in `index.ts`: parse `thinking`, `tools`, `both`, `close`, and no argument; report attached state; report accepted arguments for anything else; make a repeat request idempotent. Verify `test/stream-command.test.ts` covers each argument with a fake `ctx.ui.notify`.
+- [x] 3.2 Add pane creation: thinking splits right of the pi pane, tools splits below the thinking pane (or right when it is the only pane), both panes are named, focus stays on the pi pane, and the recorded pane ids are closed by `/stream close`. Verify a test with `__setLuvusExecForTests__` asserts the split order, the `--right`/`--down` flags, the names, and the close calls.
+- [x] 3.3 Add the tailer command line builder, using bare `node`, double-quoted tokens, and rejection of tokens a shell would expand. Verify unit tests cover a normal path and a rejected path.
+- [x] 3.4 Refuse to open a stream when no Luvus pane id is known, leaving state unchanged. Verify a test with the pane id unset asserts the warning and an unchanged attach state.
 
 ## 3b. Projection wiring
 
