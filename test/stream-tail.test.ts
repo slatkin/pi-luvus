@@ -63,7 +63,7 @@ afterEach(() => {
 });
 
 describe("stream-tail.mjs", () => {
-  test("prints a header, copies records, and exits 0 when the socket closes", async () => {
+  test("prints a header, renders thinking text, and exits 0 when the socket closes", async () => {
     const dir = tempDir();
     dirs.push(dir);
     const hub = createStreamHub({ socketDir: dir, socketName: "t.sock" });
@@ -71,15 +71,13 @@ describe("stream-tail.mjs", () => {
 
     const tailer = spawnTailer(hub.socketPath, "thinking");
     await waitFor(() => hub.clientCount("thinking") === 1);
-    hub.recordThinking("mid-turn thought");
-    await waitFor(() => tailer.stdout.includes("mid-turn thought"));
+    hub.recordThinking("Let me check\nthe path");
+    await waitFor(() => tailer.stdout.includes("the path"));
 
     await hub.close();
     await tailer.done;
     assert.equal(tailer.code, 0);
-    assert.match(tailer.stdout, /pi-luvus thinking stream/);
-    assert.match(tailer.stdout, /"type":"thinking"/);
-    assert.match(tailer.stdout, /"text":"mid-turn thought"/);
+    assert.equal(tailer.stdout, "pi-luvus thinking stream\nLet me check\nthe path");
     assert.equal(tailer.stderr, "");
   });
 
@@ -99,9 +97,10 @@ describe("stream-tail.mjs", () => {
     await hub.close();
     await tailer.done;
     assert.equal(tailer.code, 0);
-    assert.match(tailer.stdout, /pi-luvus tools stream/);
-    assert.match(tailer.stdout, /"type":"tool_start"/);
-    assert.match(tailer.stdout, /"type":"tool_end"/);
+    assert.equal(
+      tailer.stdout,
+      "pi-luvus tools stream\ntool read_file started\ntool read_file failed\n",
+    );
   });
 
   test("exits non-zero when the connection fails", async () => {

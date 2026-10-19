@@ -6,72 +6,24 @@
  */
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import * as subagentsModule from "../pi-extension/luvus/index.ts";
-import { __setLuvusExecForTests__ } from "../pi-extension/luvus/luvus.ts";
 import { tailerCommandLine } from "../pi-extension/luvus/launch.ts";
-import { createEnvGuard, createMockApi, type Notification } from "./stream-fakes.ts";
+import { createStreamHarness } from "./stream-harness.ts";
 
 describe("stream command", () => {
-  const env = createEnvGuard();
-  let runtimeDir: string;
-  let calls: string[][];
-  let nextPaneId: number;
-  let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
+  const harness = createStreamHarness();
+  const { notifications, calls } = harness;
+  const { setEnv, test_ } = harness;
 
-  const setEnv = (name: string, value: string | undefined) => env.set(name, value);
+  before(() => harness.start());
+  after(() => harness.stop());
+  beforeEach(() => harness.reset());
+  afterEach(() => harness.reset());
 
-  const notifications: Notification[] = [];
-  const ctx = {
-    ui: {
-      notify(text: string, level: string) {
-        notifications.push({ text, level });
-      },
-    },
-  };
-
-  before(async () => {
-    const { api, commands } = createMockApi();
-    (subagentsModule as any).default(api);
-    command = commands.find((entry) => entry.name === "stream");
-    runtimeDir = mkdtempSync(join(tmpdir(), "pi-luvus-stream-test-"));
-    setEnv("XDG_RUNTIME_DIR", runtimeDir);
-  });
-
-  after(() => {
-    env.restore();
-    rmSync(runtimeDir, { recursive: true, force: true });
-  });
-
-  beforeEach(async () => {
-    await (subagentsModule as any).__test__.resetStreamState();
-    notifications.length = 0;
-    calls = [];
-    nextPaneId = 101;
-    __setLuvusExecForTests__((args) => {
-      calls.push([...args]);
-      if (args[0] === "pane" && args[1] === "split") {
-        return JSON.stringify({ result: { pane: String(nextPaneId++) } });
-      }
-      return JSON.stringify({ result: {} });
-    });
-    setEnv("LUVUS_ENV", "1");
-    setEnv("LUVUS_BIN_PATH", "/usr/bin/luvus");
-    setEnv("LUVUS_PANE_ID", "7");
-  });
-
-  afterEach(async () => {
-    __setLuvusExecForTests__(null);
-    await (subagentsModule as any).__test__.resetStreamState();
-  });
-
-  const run = (args: string) => command!.handler(args, ctx);
+  const run = (args: string) => harness.run(args);
   const texts = () => notifications.map((n) => `${n.level}: ${n.text}`).join("\n");
 
   it("registers the /stream command", () => {
-    assert.ok(command, "expected a /stream command to be registered");
+    assert.ok(harness.command, "expected a /stream command to be registered");
   });
 
   it("reports the attached state for no argument", async () => {
@@ -95,7 +47,7 @@ describe("stream command", () => {
     assert.ok(warning, "expected a warning");
     assert.match(warning.text, /thinking, tools, both, close/);
     assert.deepEqual(calls, []);
-    assert.deepEqual((subagentsModule as any).__test__.streamPaneEntries(), []);
+    assert.deepEqual(test_.streamPaneEntries(), []);
   });
 
   it("opens the thinking pane right of the pi pane, named and unfocused", async () => {
@@ -106,7 +58,7 @@ describe("stream command", () => {
     assert.equal(calls[2][1], "run");
     assert.equal(calls[2][2], "101");
     assert.match(texts(), /thinking stream is attached/i);
-    assert.deepEqual((subagentsModule as any).__test__.streamPaneEntries(), [["thinking", "101"]]);
+    assert.deepEqual(test_.streamPaneEntries(), [["thinking", "101"]]);
   });
 
   it("opens the tools pane right of the pi pane when it is the only pane", async () => {
@@ -116,7 +68,7 @@ describe("stream command", () => {
     assert.equal(calls[2][2], "101");
     const line = calls[2].slice(3).join(" ");
     assert.match(line, /--stream" "tools/);
-    assert.deepEqual((subagentsModule as any).__test__.streamPaneEntries(), [["tools", "101"]]);
+    assert.deepEqual(test_.streamPaneEntries(), [["tools", "101"]]);
   });
 
   it("opens both: thinking right of pi, tools below the thinking pane", async () => {
@@ -126,7 +78,7 @@ describe("stream command", () => {
     assert.deepEqual(calls[3], ["pane", "split", "101", "--down", "--no-focus"]);
     assert.deepEqual(calls[4], ["pane", "name", "tools", "--pane", "102"]);
     assert.equal(calls[5][2], "102");
-    const entries = (subagentsModule as any).__test__.streamPaneEntries();
+    const entries = test_.streamPaneEntries();
     assert.deepEqual(entries, [
       ["thinking", "101"],
       ["tools", "102"],
@@ -136,7 +88,7 @@ describe("stream command", () => {
   it("opens the tools pane below an existing thinking pane opened earlier", async () => {
     await run("thinking");
     calls.length = 0;
-    nextPaneId = 201;
+    harness.newPaneId = 201;
     await run("tools");
     assert.deepEqual(calls[0], ["pane", "split", "101", "--down", "--no-focus"]);
     assert.deepEqual(calls[1], ["pane", "name", "tools", "--pane", "201"]);
@@ -157,7 +109,7 @@ describe("stream command", () => {
     await run("thinking");
     assert.equal(calls.length, before);
     assert.match(texts(), /already attached/i);
-    assert.deepEqual((subagentsModule as any).__test__.streamPaneEntries(), [["thinking", "101"]]);
+    assert.deepEqual(test_.streamPaneEntries(), [["thinking", "101"]]);
   });
 
   it("serializes concurrent opens so each stream splits exactly one pane", async () => {
@@ -173,7 +125,7 @@ describe("stream command", () => {
       ["pane", "split", "7", "--right", "--no-focus"],
       ["pane", "split", "101", "--down", "--no-focus"],
     ]);
-    assert.deepEqual((subagentsModule as any).__test__.streamPaneEntries(), [
+    assert.deepEqual(test_.streamPaneEntries(), [
       ["thinking", "101"],
       ["tools", "102"],
     ]);
@@ -189,7 +141,7 @@ describe("stream command", () => {
       ["pane", "close", "102"],
     ]);
     assert.match(texts(), /Closed 2 stream panes/);
-    assert.deepEqual((subagentsModule as any).__test__.streamPaneEntries(), []);
+    assert.deepEqual(test_.streamPaneEntries(), []);
   });
 
   it("closes the recorded panes and forgets them", async () => {
@@ -202,7 +154,7 @@ describe("stream command", () => {
       ["pane", "close", "102"],
     ]);
     assert.match(texts(), /Closed 2 stream panes/);
-    assert.deepEqual((subagentsModule as any).__test__.streamPaneEntries(), []);
+    assert.deepEqual(test_.streamPaneEntries(), []);
   });
 
   it("reports no panes for close with nothing open", async () => {
@@ -218,7 +170,7 @@ describe("stream command", () => {
     assert.ok(warning, "expected a warning");
     assert.match(warning.text, /requires a Luvus pane/i);
     assert.deepEqual(calls, []);
-    assert.deepEqual((subagentsModule as any).__test__.streamPaneEntries(), []);
+    assert.deepEqual(test_.streamPaneEntries(), []);
     await run("");
     assert.match(texts(), /thinking: not attached/);
   });

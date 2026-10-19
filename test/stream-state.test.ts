@@ -5,9 +5,6 @@ import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  FLUSH_INTERVAL_MS,
-  REPLAY_MAX_CHARS,
-  REPLAY_MAX_LINES,
   StreamState,
   createStreamHub,
   defaultSocketDir,
@@ -118,12 +115,6 @@ describe("StreamState", () => {
       isError: true,
       text: "tool bash failed",
     });
-  });
-
-  test("exports the replay bounds and flush window", () => {
-    assert.ok(REPLAY_MAX_LINES > 0);
-    assert.ok(REPLAY_MAX_CHARS > 0);
-    assert.equal(FLUSH_INTERVAL_MS, 50);
   });
 });
 

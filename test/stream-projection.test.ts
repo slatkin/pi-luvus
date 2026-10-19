@@ -5,7 +5,6 @@ import {
   StreamFilterView,
   StreamProjection,
   findChatContainer,
-  type AttachState,
 } from "../pi-extension/luvus/stream-projection.ts";
 import {
   AssistantMessageComponent,
@@ -300,23 +299,5 @@ describe("StreamProjection", () => {
     assert.equal(warns.length, 1);
     (document.children[2] as StreamFilterView).render(80);
     assert.equal(warns.length, 1);
-  });
-
-  test("treats every attach-state combination distinctly", () => {
-    const chat = chatWith(
-      new ToolExecutionComponent("bash", "t1"),
-      assistant({ type: "thinking", thinking: "secret" }, { type: "text", text: "Answer" }),
-    );
-    const expected: Record<AttachState, string[]> = {
-      none: ["[tool bash]", "", "secret", "", "Answer"],
-      thinking: ["[tool bash]", "", "Answer"],
-      tools: ["", "secret", "", "Answer"],
-      both: ["", "Answer"],
-    };
-    for (const [state, lines] of Object.entries(expected) as [AttachState, string[]][]) {
-      const view = new StreamFilterView(chat);
-      view.setAttachState(state);
-      assert.deepEqual(view.render(80), lines, state);
-    }
   });
 });

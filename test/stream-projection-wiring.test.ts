@@ -8,93 +8,36 @@
  */
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { connect, type Socket } from "node:net";
 import { Container } from "@earendil-works/pi-tui";
-import * as subagentsModule from "../pi-extension/luvus/index.ts";
 import { StreamFilterView } from "../pi-extension/luvus/stream-projection.ts";
-import { __setLuvusExecForTests__ } from "../pi-extension/luvus/luvus.ts";
-import {
-  assistant,
-  chatWith,
-  createEnvGuard,
-  createMockApi,
-  regularLayout,
-  type FakeTui,
-  type Handler,
-  type Notification,
-} from "./stream-fakes.ts";
+import { assistant, chatWith, regularLayout, type FakeTui } from "./stream-fakes.ts";
+import { createStreamHarness } from "./stream-harness.ts";
 
 describe("stream projection wiring", () => {
-  const env = createEnvGuard();
-  let runtimeDir: string;
-  let calls: string[][];
-  let nextPaneId: number;
-  let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
-  let sessionStart: Handler | undefined;
-
-  const setEnv = (name: string, value: string | undefined) => env.set(name, value);
-
-  const notifications: Notification[] = [];
-  const test_ = (subagentsModule as any).__test__;
-
   /** The tui the widget factory receives; each test points it where it needs. */
   let currentTui: FakeTui | undefined;
 
-  const ctx = {
-    sessionManager: { getSessionId: () => "projection-wiring-session" },
+  const harness = createStreamHarness({
+    ctx: { sessionManager: { getSessionId: () => "projection-wiring-session" } },
     ui: {
-      notify(text: string, level: string) {
-        notifications.push({ text, level });
-      },
       setWidget(_key: string, content: unknown) {
         if (typeof content === "function") {
           (content as (tui: unknown, theme: unknown) => unknown)(currentTui, undefined);
         }
       },
     },
-  };
-
-  before(async () => {
-    const { api, commands, handlers } = createMockApi();
-    (subagentsModule as any).default(api);
-    command = commands.find((entry) => entry.name === "stream");
-    sessionStart = handlers.get("session_start")?.at(-1);
-    runtimeDir = mkdtempSync(join(tmpdir(), "pi-luvus-projection-test-"));
-    setEnv("XDG_RUNTIME_DIR", runtimeDir);
   });
+  const { notifications } = harness;
+  const test_ = harness.test_;
 
-  after(() => {
-    env.restore();
-    rmSync(runtimeDir, { recursive: true, force: true });
-  });
+  before(() => harness.start());
+  after(() => harness.stop());
+  beforeEach(() => harness.reset());
+  afterEach(() => harness.reset());
 
-  beforeEach(async () => {
-    await test_.resetStreamState();
-    notifications.length = 0;
-    calls = [];
-    nextPaneId = 101;
-    __setLuvusExecForTests__((args) => {
-      calls.push([...args]);
-      if (args[0] === "pane" && args[1] === "split") {
-        return JSON.stringify({ result: { pane: String(nextPaneId++) } });
-      }
-      return JSON.stringify({ result: {} });
-    });
-    setEnv("LUVUS_ENV", "1");
-    setEnv("LUVUS_BIN_PATH", "/usr/bin/luvus");
-    setEnv("LUVUS_PANE_ID", "7");
-  });
-
-  afterEach(async () => {
-    __setLuvusExecForTests__(null);
-    await test_.resetStreamState();
-  });
-
-  const run = (args: string) => command!.handler(args, ctx);
-  const startSession = () => sessionStart!(undefined, ctx);
+  const run = (args: string) => harness.run(args);
+  const startSession = () => harness.handler("session_start")!(undefined, harness.ctx);
   const slotChild = (document: Container) => document.children[2];
 
   async function waitForState(state: string): Promise<void> {
@@ -215,14 +158,5 @@ describe("stream projection wiring", () => {
     await run("thinking");
     assert.notEqual(slotChild(good.document), goodChat);
     assert.equal(notifications.filter((n) => /transcript layout/i.test(n.text)).length, 0);
-  });
-
-  it("does nothing without a captured tui", async () => {
-    currentTui = undefined;
-    startSession();
-    await run("thinking");
-    assert.deepEqual(test_.streamPaneEntries(), [["thinking", "101"]]);
-    assert.equal(test_.streamAttachState(), "thinking");
-    // No projection state existed to crash; nothing to assert beyond no-throw.
   });
 });

@@ -5,10 +5,11 @@
  * Usage: node stream-tail.mjs --socket <path> --stream <thinking|tools>
  *
  * It connects to the session's unix socket, sends one hello record naming its
- * stream, prints a one-line header, and copies every received record to
- * stdout. When the connection closes (the pi session ended or the pane was
- * detached) it exits 0; when the connection cannot be established it reports
- * the failure on stderr and exits non-zero.
+ * stream, prints a one-line header, then renders each newline-delimited JSON
+ * record as readable text. The JSON envelope is transport only. When the
+ * connection closes (the pi session ended or the pane was detached) it exits
+ * 0; when the connection cannot be established it reports the failure on
+ * stderr and exits non-zero.
  */
 import { createConnection } from "node:net";
 
@@ -29,6 +30,16 @@ for (let i = 0; i < argv.length; i += 2) {
 }
 if (!socketPath || !stream || !STREAMS.includes(stream)) usage();
 
+/** The readable text of one record, or "" for a record worth skipping. */
+function recordText(record) {
+  if (!record || typeof record !== "object") return "";
+  if (typeof record.text !== "string") return "";
+  // Thinking text is prose that continues across records; print it verbatim.
+  if (record.type === "thinking") return record.text;
+  // Tool records are line-oriented; keep each one on its own line.
+  return record.text.endsWith("\n") ? record.text : `${record.text}\n`;
+}
+
 const socket = createConnection(socketPath);
 
 socket.setEncoding("utf8");
@@ -38,8 +49,35 @@ socket.on("connect", () => {
   process.stdout.write(`pi-luvus ${stream} stream\n`);
 });
 
+let buffer = "";
 socket.on("data", (chunk) => {
-  process.stdout.write(chunk);
+  buffer += chunk;
+  let newline = buffer.indexOf("\n");
+  while (newline >= 0) {
+    const line = buffer.slice(0, newline);
+    buffer = buffer.slice(newline + 1);
+    newline = buffer.indexOf("\n");
+    if (!line.trim()) continue;
+    let record;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      // A line that is not a record has no readable content to show.
+      continue;
+    }
+    process.stdout.write(recordText(record));
+  }
+});
+
+socket.on("end", () => {
+  if (buffer.trim()) {
+    try {
+      process.stdout.write(recordText(JSON.parse(buffer)));
+    } catch {
+      // A trailing partial record has no readable content to show.
+    }
+  }
+  buffer = "";
 });
 
 socket.on("error", (error) => {

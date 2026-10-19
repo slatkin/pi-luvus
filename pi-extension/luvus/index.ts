@@ -93,18 +93,66 @@ let activePi: ExtensionAPI | null = null;
 let latestCtx: ExtensionContext | null = null;
 
 /**
- * Per-session stream transport. The hub starts recording at session start so
- * a pane opened mid-turn can replay that turn; its socket starts listening on
- * the first attach (unit 3).
+ * Stream state owned by one module load: the per-session transport hub, the
+ * follower panes this session opened, and the installed transcript
+ * projection. `/reload` re-imports this file, so the state is parked under
+ * `STREAM_KEY` for the next load to retire — module scope alone would leave
+ * the listening socket and its tailers unreachable.
  */
-let streamHub: StreamHub | undefined;
+export interface StreamRuntime {
+  /** The hub starts recording at session start so a mid-turn pane can replay. */
+  hub?: StreamHub;
+  /**
+   * Panes this session opened, per stream. `/stream close` closes them and
+   * clears the record; a stream whose client count drops to zero (its pane
+   * closed) also forgets the record, so a later request can open a fresh pane.
+   */
+  panes: Map<StreamName, string>;
+  /** Created on the first attach-state sync. */
+  projection?: StreamProjection;
+  /** The live TUI captured by the zero-height widget factory. */
+  tui?: unknown;
+}
+
+const STREAM_KEY = Symbol.for(`pi-luvus/streams${INSTANCE_KEY}`);
 
 /**
- * Follower panes this session opened, per stream. `/stream close` closes them
- * and clears the record; a stream whose client count drops to zero (its pane
- * closed) also forgets the record, so a later request can open a fresh pane.
+ * Close what the previous module load left behind: its installed projection,
+ * the panes it opened, and its hub (listening socket plus client tailers).
+ * Each failure is ignored on its own; a reload must finish even when one part
+ * is already gone.
  */
-const streamPanes = new Map<StreamName, string>();
+export function retireStreamRuntime(previous: StreamRuntime | undefined): void {
+  if (!previous) return;
+  try {
+    previous.projection?.uninstall();
+  } catch {
+    // The old tree may already be torn down; nothing left to restore.
+  }
+  for (const pane of previous.panes.values()) {
+    try {
+      closeSurface(pane);
+    } catch {
+      // The pane may already be closed; the record is dropped regardless.
+    }
+  }
+  previous.panes.clear();
+  previous.projection = undefined;
+  previous.tui = undefined;
+  void previous.hub?.close().catch(() => {});
+  previous.hub = undefined;
+}
+
+const streamRuntime: StreamRuntime = { panes: new Map() };
+retireStreamRuntime((globalThis as any)[STREAM_KEY] as StreamRuntime | undefined);
+(globalThis as any)[STREAM_KEY] = streamRuntime;
+
+const streamPanes = streamRuntime.panes;
+
+/** The live hub for this module load, if session start created one. */
+function streamHub(): StreamHub | undefined {
+  return streamRuntime.hub;
+}
 
 /**
  * The session's stream hub, created on first use. `onClientsChanged` is the
@@ -112,26 +160,20 @@ const streamPanes = new Map<StreamName, string>();
  * forget the pane recorded for it so a repeat request opens a new pane.
  */
 function ensureStreamHub(sessionId: string | undefined): StreamHub {
-  streamHub ??= createStreamHub({
+  streamRuntime.hub ??= createStreamHub({
     sessionId,
     onClientsChanged: (stream, count) => {
       if (count === 0) streamPanes.delete(stream);
       syncStreamProjection();
     },
   });
-  return streamHub;
+  return streamRuntime.hub;
 }
 
 /** Whether a stream is attached: a pane this session opened, or a live client. */
 function streamAttached(stream: StreamName): boolean {
-  return streamPanes.has(stream) || (streamHub?.isAttached(stream) ?? false);
+  return streamPanes.has(stream) || (streamRuntime.hub?.isAttached(stream) ?? false);
 }
-
-/** The transcript projection, created on the first attach-state sync. */
-let streamProjection: StreamProjection | undefined;
-
-/** The live TUI captured by the zero-height widget factory. */
-let streamTui: unknown;
 
 /** The projection's attach state, derived from the existing stream state. */
 function streamAttachState(): AttachState {
@@ -161,9 +203,9 @@ function warnStreamProjection(message: string): void {
  * layout mismatch, warns once, and leaves the transcript untouched.
  */
 function syncStreamProjection(): void {
-  if (!streamTui) return;
-  streamProjection ??= new StreamProjection({ warn: warnStreamProjection });
-  streamProjection.apply(streamAttachState(), streamTui);
+  if (!streamRuntime.tui) return;
+  streamRuntime.projection ??= new StreamProjection({ warn: warnStreamProjection });
+  streamRuntime.projection.apply(streamAttachState(), streamRuntime.tui);
 }
 
 /**
@@ -174,7 +216,7 @@ function syncStreamProjection(): void {
 function captureStreamTui(ctx: ExtensionContext): void {
   try {
     ctx.ui.setWidget("luvus-streams", (tui) => {
-      streamTui = tui;
+      streamRuntime.tui = tui;
       return {
         render: () => [],
         invalidate() {},
@@ -735,17 +777,17 @@ export const __test__ = {
   },
   /** The hub socket path, for tests that attach a client directly. */
   streamSocketPath(): string | undefined {
-    return streamHub?.socketPath;
+    return streamRuntime.hub?.socketPath;
   },
   /** Reset stream command state between tests: records and the hub. */
   async resetStreamState(): Promise<void> {
     streamPanes.clear();
-    const hub = streamHub;
-    streamHub = undefined;
+    const hub = streamRuntime.hub;
+    streamRuntime.hub = undefined;
     await hub?.close();
-    streamProjection?.uninstall();
-    streamProjection = undefined;
-    streamTui = undefined;
+    streamRuntime.projection?.uninstall();
+    streamRuntime.projection = undefined;
+    streamRuntime.tui = undefined;
   },
 };
 
@@ -785,7 +827,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
   createLiveTitleController().register(pi);
 
   // Capture the UI context for widget updates
-  registerStreamEventHandlers(pi, () => streamHub);
+  registerStreamEventHandlers(pi, streamHub);
 
   pi.on("session_start", (_event, ctx) => {
     latestCtx = ctx;
@@ -803,10 +845,10 @@ export default function subagentsExtension(pi: ExtensionAPI) {
     // The transcript is torn down with the session; drop the projection and
     // its tui without touching the dying tree. A new session start captures
     // a fresh tui through the widget.
-    streamProjection = undefined;
-    streamTui = undefined;
-    const hub = streamHub;
-    streamHub = undefined;
+    streamRuntime.projection = undefined;
+    streamRuntime.tui = undefined;
+    const hub = streamRuntime.hub;
+    streamRuntime.hub = undefined;
     void hub?.close();
   });
 
