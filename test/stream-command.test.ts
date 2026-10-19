@@ -12,47 +12,16 @@ import { join } from "node:path";
 import * as subagentsModule from "../pi-extension/luvus/index.ts";
 import { __setLuvusExecForTests__ } from "../pi-extension/luvus/luvus.ts";
 import { tailerCommandLine } from "../pi-extension/luvus/launch.ts";
-
-interface Notification {
-  text: string;
-  level: string;
-}
-
-function createMockApi() {
-  const commands: Array<{ name: string; handler: (args: string, ctx: unknown) => Promise<void> }> =
-    [];
-  const api = {
-    on() {},
-    registerTool() {},
-    registerCommand(
-      name: string,
-      command: { handler: (args: string, ctx: unknown) => Promise<void> },
-    ) {
-      commands.push({ name, ...command });
-    },
-    registerMessageRenderer() {},
-    registerShortcut() {},
-    sendUserMessage() {},
-    sendMessage() {},
-    getAllTools() {
-      return [];
-    },
-  } as any;
-  return { api, commands };
-}
+import { createEnvGuard, createMockApi, type Notification } from "./stream-fakes.ts";
 
 describe("stream command", () => {
-  const savedEnv = new Map<string, string | undefined>();
+  const env = createEnvGuard();
   let runtimeDir: string;
   let calls: string[][];
   let nextPaneId: number;
   let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
 
-  const setEnv = (name: string, value: string | undefined) => {
-    if (!savedEnv.has(name)) savedEnv.set(name, process.env[name]);
-    if (value === undefined) delete process.env[name];
-    else process.env[name] = value;
-  };
+  const setEnv = (name: string, value: string | undefined) => env.set(name, value);
 
   const notifications: Notification[] = [];
   const ctx = {
@@ -72,10 +41,7 @@ describe("stream command", () => {
   });
 
   after(() => {
-    for (const [name, value] of savedEnv) {
-      if (value === undefined) delete process.env[name];
-      else process.env[name] = value;
-    }
+    env.restore();
     rmSync(runtimeDir, { recursive: true, force: true });
   });
 

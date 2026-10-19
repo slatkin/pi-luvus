@@ -30,7 +30,6 @@ for (let i = 0; i < argv.length; i += 2) {
 if (!socketPath || !stream || !STREAMS.includes(stream)) usage();
 
 const socket = createConnection(socketPath);
-let failed = false;
 
 socket.setEncoding("utf8");
 
@@ -43,12 +42,7 @@ socket.on("data", (chunk) => {
   process.stdout.write(chunk);
 });
 
-socket.on("close", () => {
-  if (!failed) process.exitCode = 0;
-});
-
 socket.on("error", (error) => {
-  failed = true;
   process.stderr.write(`stream-tail: cannot connect to ${socketPath}: ${error.message}\n`);
   process.exitCode = 1;
   socket.destroy();

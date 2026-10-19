@@ -12,180 +12,30 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect, type Socket } from "node:net";
-import { Container, type Component } from "@earendil-works/pi-tui";
+import { Container } from "@earendil-works/pi-tui";
 import * as subagentsModule from "../pi-extension/luvus/index.ts";
 import { StreamFilterView } from "../pi-extension/luvus/stream-projection.ts";
 import { __setLuvusExecForTests__ } from "../pi-extension/luvus/luvus.ts";
-
-/**
- * Fakes that mirror the runtime shape of pi's transcript components. Class
- * names match the real components so the projection's structural checks
- * classify them the same way.
- */
-class Spacer {
-  lines: number;
-  constructor(lines = 1) {
-    this.lines = lines;
-  }
-  render(): string[] {
-    return Array.from({ length: this.lines }, () => "");
-  }
-  invalidate(): void {}
-}
-
-class Markdown {
-  text: string;
-  constructor(text: string) {
-    this.text = text;
-  }
-  render(): string[] {
-    return [this.text];
-  }
-  invalidate(): void {}
-}
-
-class MouseRegion {
-  child: Component;
-  constructor(child: Component) {
-    this.child = child;
-  }
-  render(width: number): string[] {
-    return this.child.render(width);
-  }
-  invalidate(): void {}
-}
-
-interface Block {
-  type: string;
-  text?: string;
-  thinking?: string;
-}
-
-interface MessageLike {
-  content: Block[];
-  stopReason?: string;
-}
-
-/** Mirrors pi's AssistantMessageComponent content layout for the fakes. */
-class AssistantMessageComponent extends Container {
-  contentContainer = new Container();
-  lastMessage: MessageLike | undefined;
-
-  constructor(message?: MessageLike) {
-    super();
-    this.addChild(this.contentContainer);
-    if (message) this.updateContent(message);
-  }
-
-  updateContent(message: MessageLike): void {
-    this.lastMessage = message;
-    this.contentContainer.clear();
-    const content = message.content;
-    const visible = (block: Block) =>
-      (block.type === "text" && block.text?.trim()) ||
-      (block.type === "thinking" && block.thinking?.trim());
-    if (content.some(visible)) this.contentContainer.addChild(new Spacer(1));
-    for (let i = 0; i < content.length; i += 1) {
-      const block = content[i];
-      if (block.type === "text" && visible(block)) {
-        this.contentContainer.addChild(new Markdown(block.text!.trim()));
-      } else if (block.type === "thinking") {
-        const thoughts: string[] = [];
-        for (; i < content.length; i += 1) {
-          const run = content[i];
-          if (run.type !== "thinking") break;
-          if (run.thinking?.trim()) thoughts.push(run.thinking.trim());
-        }
-        i -= 1;
-        if (thoughts.length === 0) continue;
-        const followedByVisible = content.slice(i + 1).some(visible);
-        this.contentContainer.addChild(new MouseRegion(new Markdown(thoughts.join("\n\n"))));
-        if (followedByVisible) this.contentContainer.addChild(new Spacer(1));
-      }
-    }
-  }
-}
-
-function assistant(...blocks: Block[]): AssistantMessageComponent {
-  return new AssistantMessageComponent({ content: blocks });
-}
-
-function chatWith(...children: Component[]): Container {
-  const chat = new Container();
-  for (const child of children) chat.addChild(child);
-  return chat;
-}
-
-interface FakeTui {
-  layoutRoot?: Container;
-  children?: Container[];
-  renders: number;
-  requestRender(): void;
-}
-
-/** Regular-mode layout: the document container is tui's first direct child. */
-function regularLayout(chat: Container): { tui: FakeTui; document: Container } {
-  const document = new Container();
-  document.addChild(new Container());
-  document.addChild(new Container());
-  document.addChild(chat);
-  const tui: FakeTui = {
-    children: [document, new Container(), new Container(), new Container()],
-    renders: 0,
-    requestRender() {
-      this.renders += 1;
-    },
-  };
-  return { tui, document };
-}
-
-interface Notification {
-  text: string;
-  level: string;
-}
-
-type Handler = (event: unknown, ctx: unknown) => void;
-
-function createMockApi() {
-  const commands: Array<{ name: string; handler: (args: string, ctx: unknown) => Promise<void> }> =
-    [];
-  const handlers = new Map<string, Handler[]>();
-  const api = {
-    on(event: string, handler: Handler) {
-      handlers.set(event, [...(handlers.get(event) ?? []), handler]);
-      return () => {};
-    },
-    registerTool() {},
-    registerCommand(
-      name: string,
-      command: { handler: (args: string, ctx: unknown) => Promise<void> },
-    ) {
-      commands.push({ name, ...command });
-    },
-    registerMessageRenderer() {},
-    registerShortcut() {},
-    sendUserMessage() {},
-    sendMessage() {},
-    getAllTools() {
-      return [];
-    },
-  } as any;
-  return { api, commands, handlers };
-}
+import {
+  assistant,
+  chatWith,
+  createEnvGuard,
+  createMockApi,
+  regularLayout,
+  type FakeTui,
+  type Handler,
+  type Notification,
+} from "./stream-fakes.ts";
 
 describe("stream projection wiring", () => {
-  const savedEnv = new Map<string, string | undefined>();
+  const env = createEnvGuard();
   let runtimeDir: string;
   let calls: string[][];
   let nextPaneId: number;
   let command: { handler: (args: string, ctx: unknown) => Promise<void> } | undefined;
   let sessionStart: Handler | undefined;
 
-  const setEnv = (name: string, value: string | undefined) => {
-    if (!savedEnv.has(name)) savedEnv.set(name, process.env[name]);
-    if (value === undefined) delete process.env[name];
-    else process.env[name] = value;
-  };
+  const setEnv = (name: string, value: string | undefined) => env.set(name, value);
 
   const notifications: Notification[] = [];
   const test_ = (subagentsModule as any).__test__;
@@ -217,10 +67,7 @@ describe("stream projection wiring", () => {
   });
 
   after(() => {
-    for (const [name, value] of savedEnv) {
-      if (value === undefined) delete process.env[name];
-      else process.env[name] = value;
-    }
+    env.restore();
     rmSync(runtimeDir, { recursive: true, force: true });
   });
 

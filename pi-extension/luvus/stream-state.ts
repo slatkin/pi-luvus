@@ -13,7 +13,7 @@
  * opened mid-turn still receives the current turn's earlier content.
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -179,7 +179,6 @@ export interface StreamHubOptions extends StreamStateOptions {
 
 export interface StreamHub {
   readonly socketPath: string;
-  readonly flushMs: number;
   /** Start listening. Idempotent; returns the socket path. */
   start(): Promise<string>;
   resetTurn(): void;
@@ -214,17 +213,14 @@ export function defaultSocketDir(env: NodeJS.ProcessEnv = process.env): string {
   return join(base, "pi-luvus");
 }
 
-function socketPathFor(dir: string, name: string): string {
-  return join(dir, name);
-}
-
 function hashedSocketName(sessionId: string | undefined): string {
   const seed = sessionId || `${process.pid}`;
   const hash = createHash("sha256").update(seed).digest("hex").slice(0, 16);
   return `stream-${hash}.sock`;
 }
 
-function extractText(result: unknown): string {
+/** Text from a tool's partial result, for the tools stream. */
+export function toolOutputText(result: unknown): string {
   if (!result || typeof result !== "object") return "";
   const content = (result as { content?: unknown }).content;
   if (!Array.isArray(content)) return "";
@@ -237,15 +233,10 @@ function extractText(result: unknown): string {
   return parts.join("");
 }
 
-/** Text from a tool's partial result, for the tools stream. */
-export function toolOutputText(result: unknown): string {
-  return extractText(result);
-}
-
 export function createStreamHub(options: StreamHubOptions = {}): StreamHub {
   const dir = options.socketDir ?? defaultSocketDir();
   const name = options.socketName ?? hashedSocketName(options.sessionId);
-  const socketPath = socketPathFor(dir, name);
+  const socketPath = join(dir, name);
   const flushMs = options.flushMs ?? FLUSH_INTERVAL_MS;
   const state = new StreamState(options);
   const clients = new Set<Client>();
@@ -379,9 +370,8 @@ export function createStreamHub(options: StreamHubOptions = {}): StreamHub {
   };
 
   const listen = async (): Promise<string> => {
-    if (listening) return socketPath;
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
-    if (existsSync(socketPath)) rmSync(socketPath, { force: true });
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    rmSync(socketPath, { force: true });
 
     const nextServer = createServer(handleConnection);
     await new Promise<void>((resolve, reject) => {
@@ -408,13 +398,12 @@ export function createStreamHub(options: StreamHubOptions = {}): StreamHub {
 
   return {
     socketPath,
-    flushMs,
 
     async start(): Promise<string> {
       if (listening) return socketPath;
       startPromise ??= listen().catch((error) => {
         startPromise = undefined;
-        if (existsSync(socketPath)) rmSync(socketPath, { force: true });
+        rmSync(socketPath, { force: true });
         throw error;
       });
       return startPromise;
@@ -480,7 +469,7 @@ export function createStreamHub(options: StreamHubOptions = {}): StreamHub {
       if (current) {
         await new Promise<void>((resolve) => current.close(() => resolve()));
       }
-      if (existsSync(socketPath)) rmSync(socketPath, { force: true });
+      rmSync(socketPath, { force: true });
     },
   };
 }

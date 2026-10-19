@@ -535,12 +535,11 @@ export class StreamProjection {
       this.uninstall();
       this.warnMismatch("Luvus streams: transcript layout changed; restoring the transcript");
     };
-    const index = slot.parent.children.indexOf(slot.container);
-    if (index === -1) {
+    if (slot.parent.children[slot.index] !== slot.container) {
       this.warnMismatch("Luvus streams: transcript layout not recognised; showing it unchanged");
       return;
     }
-    slot.parent.children[index] = view;
+    slot.parent.children[slot.index] = view;
     this.view = view;
     this.slot = slot;
     this.refresh();

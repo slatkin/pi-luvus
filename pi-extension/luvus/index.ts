@@ -31,7 +31,7 @@ import {
   parseSurfacePlacement,
   type SurfacePlacement,
 } from "./luvus.ts";
-import { streamTailScriptPath, tailerCommandLine } from "./launch.ts";
+import { tailerCommandLine } from "./launch.ts";
 import { UhpEventStream } from "./uhp-events.ts";
 import {
   createSupervisor,
@@ -239,11 +239,10 @@ export async function handleStreamCommand(args: string, deps: StreamCommandDeps)
     return;
   }
 
-  const pending = requested.filter((stream) => !streamPanes.has(stream));
+  const pending: StreamName[] = [];
   for (const stream of requested) {
-    if (!pending.includes(stream)) {
-      deps.notify(`The ${stream} stream is already attached.`, "info");
-    }
+    if (streamPanes.has(stream)) deps.notify(`The ${stream} stream is already attached.`, "info");
+    else pending.push(stream);
   }
   if (pending.length === 0) return;
 
@@ -285,9 +284,6 @@ async function openStreamPanes(
       return;
     }
 
-    const commandLine = (stream: StreamName) =>
-      tailerCommandLine(hub.socketPath, stream, streamTailScriptPath());
-
     for (const stream of pending) {
       // Re-check after the start await: a concurrent invocation may have
       // opened this stream while this section waited at the gate.
@@ -309,7 +305,7 @@ async function openStreamPanes(
           // Naming is cosmetic; the pane works unnamed.
         }
         try {
-          runInPane(pane, commandLine(stream));
+          runInPane(pane, tailerCommandLine(hub.socketPath, stream));
         } catch (error) {
           try {
             closeSurface(pane);
@@ -1247,9 +1243,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
           ctx.ui.notify(`Subagent surface set to "${placement}" (saved to config.json).`, "info");
         } catch (error) {
           ctx.ui.notify(
-            `Subagent surface set to "${placement}" for this session, but saving to config.json failed: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
+            `Subagent surface set to "${placement}" for this session, but saving to config.json failed: ${errorText(error)}`,
             "warning",
           );
         }
