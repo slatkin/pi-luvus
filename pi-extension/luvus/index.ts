@@ -253,48 +253,85 @@ export async function handleStreamCommand(args: string, deps: StreamCommandDeps)
     return;
   }
 
-  const hub = ensureStreamHub(deps.sessionId);
-  try {
-    await hub.start();
-  } catch (error) {
-    deps.notify(`Cannot start the stream socket: ${errorText(error)}`, "error");
-    return;
-  }
+  await openStreamPanes(pending, paneId, deps);
+}
 
-  const commandLine = (stream: StreamName) =>
-    tailerCommandLine(hub.socketPath, stream, streamTailScriptPath());
+/**
+ * One in-flight gate for the pane-opening section of `/stream`. The section is
+ * a check-then-act across `await hub.start()`: two invocations that both pass
+ * the record pre-check would each split a pane for the same stream. Gating
+ * the section behind one promise serializes concurrent invocations, and the
+ * section re-checks the records after the start await, so a stream the
+ * in-flight invocation already opened is not split a second time.
+ */
+let streamOpenGate: Promise<void> = Promise.resolve();
 
-  for (const stream of pending) {
-    // The tools pane splits below the thinking pane when one exists (recorded
-    // earlier or just created); otherwise to the right of the pi pane.
-    const thinkingPane = streamPanes.get("thinking");
-    const fromThinking = stream === "tools" && thinkingPane !== undefined;
-    const base = fromThinking ? thinkingPane : paneId;
-    const direction = fromThinking ? "down" : "right";
+/**
+ * Open the requested stream panes, serialized against other in-flight opens.
+ * Every stream still recorded when the section runs is skipped with the
+ * already-attached notice instead of a second split.
+ */
+async function openStreamPanes(
+  pending: StreamName[],
+  paneId: string,
+  deps: StreamCommandDeps,
+): Promise<void> {
+  const section = streamOpenGate.then(async () => {
+    const hub = ensureStreamHub(deps.sessionId);
     try {
-      const pane = splitPane(base, direction);
-      try {
-        namePane(pane, stream);
-      } catch {
-        // Naming is cosmetic; the pane works unnamed.
-      }
-      try {
-        runInPane(pane, commandLine(stream));
-      } catch (error) {
-        try {
-          closeSurface(pane);
-        } catch {
-          // The split already failed to hold the pane; nothing to add.
-        }
-        throw error;
-      }
-      streamPanes.set(stream, pane);
-      deps.notify(`The ${stream} stream is attached (pane ${pane}).`, "info");
+      await hub.start();
     } catch (error) {
-      deps.notify(`Cannot open the ${stream} stream: ${errorText(error)}`, "error");
+      deps.notify(`Cannot start the stream socket: ${errorText(error)}`, "error");
+      return;
     }
-  }
-  syncStreamProjection();
+
+    const commandLine = (stream: StreamName) =>
+      tailerCommandLine(hub.socketPath, stream, streamTailScriptPath());
+
+    for (const stream of pending) {
+      // Re-check after the start await: a concurrent invocation may have
+      // opened this stream while this section waited at the gate.
+      if (streamPanes.has(stream)) {
+        deps.notify(`The ${stream} stream is already attached.`, "info");
+        continue;
+      }
+      // The tools pane splits below the thinking pane when one exists (recorded
+      // earlier or just created); otherwise to the right of the pi pane.
+      const thinkingPane = streamPanes.get("thinking");
+      const fromThinking = stream === "tools" && thinkingPane !== undefined;
+      const base = fromThinking ? thinkingPane : paneId;
+      const direction = fromThinking ? "down" : "right";
+      try {
+        const pane = splitPane(base, direction);
+        try {
+          namePane(pane, stream);
+        } catch {
+          // Naming is cosmetic; the pane works unnamed.
+        }
+        try {
+          runInPane(pane, commandLine(stream));
+        } catch (error) {
+          try {
+            closeSurface(pane);
+          } catch {
+            // The split already failed to hold the pane; nothing to add.
+          }
+          throw error;
+        }
+        streamPanes.set(stream, pane);
+        deps.notify(`The ${stream} stream is attached (pane ${pane}).`, "info");
+      } catch (error) {
+        deps.notify(`Cannot open the ${stream} stream: ${errorText(error)}`, "error");
+      }
+    }
+    syncStreamProjection();
+  });
+  // A rejected section must not poison the gate for later invocations.
+  streamOpenGate = section.then(
+    () => undefined,
+    () => undefined,
+  );
+  await section;
 }
 
 /**

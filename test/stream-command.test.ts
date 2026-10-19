@@ -194,6 +194,38 @@ describe("stream command", () => {
     assert.deepEqual((subagentsModule as any).__test__.streamPaneEntries(), [["thinking", "101"]]);
   });
 
+  it("serializes concurrent opens so each stream splits exactly one pane", async () => {
+    // Issue the second invocation while the first is still suspended at its
+    // `await hub.start()`: both pass the record pre-check before either has
+    // written a record. The gate must let only the first invocation split.
+    const first = run("both");
+    const second = run("both");
+    await Promise.all([first, second]);
+
+    const splits = calls.filter((entry) => entry[0] === "pane" && entry[1] === "split");
+    assert.deepEqual(splits, [
+      ["pane", "split", "7", "--right", "--no-focus"],
+      ["pane", "split", "101", "--down", "--no-focus"],
+    ]);
+    assert.deepEqual((subagentsModule as any).__test__.streamPaneEntries(), [
+      ["thinking", "101"],
+      ["tools", "102"],
+    ]);
+    assert.match(texts(), /already attached/i);
+
+    // `/stream close` closes exactly the recorded panes, no leaked pane.
+    calls.length = 0;
+    notifications.length = 0;
+    await run("close");
+    const closeCalls = calls.filter((entry) => entry[0] === "pane" && entry[1] === "close");
+    assert.deepEqual(closeCalls, [
+      ["pane", "close", "101"],
+      ["pane", "close", "102"],
+    ]);
+    assert.match(texts(), /Closed 2 stream panes/);
+    assert.deepEqual((subagentsModule as any).__test__.streamPaneEntries(), []);
+  });
+
   it("closes the recorded panes and forgets them", async () => {
     await run("both");
     notifications.length = 0;
