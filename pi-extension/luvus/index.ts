@@ -10,6 +10,7 @@ import {
   type StreamHub,
   type StreamName,
 } from "./stream-state.ts";
+import { StreamProjection, type AttachState } from "./stream-projection.ts";
 import { keyHint } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Box, Text, truncateToWidth } from "@earendil-works/pi-tui";
@@ -115,6 +116,7 @@ function ensureStreamHub(sessionId: string | undefined): StreamHub {
     sessionId,
     onClientsChanged: (stream, count) => {
       if (count === 0) streamPanes.delete(stream);
+      syncStreamProjection();
     },
   });
   return streamHub;
@@ -123,6 +125,65 @@ function ensureStreamHub(sessionId: string | undefined): StreamHub {
 /** Whether a stream is attached: a pane this session opened, or a live client. */
 function streamAttached(stream: StreamName): boolean {
   return streamPanes.has(stream) || (streamHub?.isAttached(stream) ?? false);
+}
+
+/** The transcript projection, created on the first attach-state sync. */
+let streamProjection: StreamProjection | undefined;
+
+/** The live TUI captured by the zero-height widget factory. */
+let streamTui: unknown;
+
+/** The projection's attach state, derived from the existing stream state. */
+function streamAttachState(): AttachState {
+  const thinking = streamAttached("thinking");
+  const tools = streamAttached("tools");
+  if (thinking && tools) return "both";
+  if (thinking) return "thinking";
+  if (tools) return "tools";
+  return "none";
+}
+
+/**
+ * Surface a projection warning through the session's UI. It runs from render
+ * paths, so it must never throw.
+ */
+function warnStreamProjection(message: string): void {
+  try {
+    latestCtx?.ui.notify(message, "warning");
+  } catch {
+    // Without a UI the transcript rendering unchanged is the only feedback.
+  }
+}
+
+/**
+ * Apply the derived attach state to the projection. A no-op until the widget
+ * factory has handed over a `tui`; the projection itself fails open on a
+ * layout mismatch, warns once, and leaves the transcript untouched.
+ */
+function syncStreamProjection(): void {
+  if (!streamTui) return;
+  streamProjection ??= new StreamProjection({ warn: warnStreamProjection });
+  streamProjection.apply(streamAttachState(), streamTui);
+}
+
+/**
+ * Capture the live TUI through the zero-height "luvus-streams" widget: the
+ * widget renders nothing, and its factory is the public seam that hands the
+ * projection the `tui` it needs to find and swap the chat container.
+ */
+function captureStreamTui(ctx: ExtensionContext): void {
+  try {
+    ctx.ui.setWidget("luvus-streams", (tui) => {
+      streamTui = tui;
+      return {
+        render: () => [],
+        invalidate() {},
+      };
+    });
+  } catch {
+    // Without a widget surface the projection stays dormant; a later session
+    // start can still capture the tui.
+  }
 }
 
 function errorText(error: unknown): string {
@@ -158,6 +219,7 @@ export async function handleStreamCommand(args: string, deps: StreamCommandDeps)
 
   if (arg === "close") {
     closeStreamPanes(deps.notify);
+    syncStreamProjection();
     return;
   }
 
@@ -232,6 +294,7 @@ export async function handleStreamCommand(args: string, deps: StreamCommandDeps)
       deps.notify(`Cannot open the ${stream} stream: ${errorText(error)}`, "error");
     }
   }
+  syncStreamProjection();
 }
 
 /**
@@ -629,12 +692,27 @@ export const __test__ = {
   streamPaneEntries(): Array<[StreamName, string]> {
     return [...streamPanes];
   },
+  /** The derived projection attach state, for tests. */
+  streamAttachState(): AttachState {
+    return streamAttachState();
+  },
+  /** One projection sync, for tests that drive attach state directly. */
+  syncStreamProjection(): void {
+    syncStreamProjection();
+  },
+  /** The hub socket path, for tests that attach a client directly. */
+  streamSocketPath(): string | undefined {
+    return streamHub?.socketPath;
+  },
   /** Reset stream command state between tests: records and the hub. */
   async resetStreamState(): Promise<void> {
     streamPanes.clear();
     const hub = streamHub;
     streamHub = undefined;
     await hub?.close();
+    streamProjection?.uninstall();
+    streamProjection = undefined;
+    streamTui = undefined;
   },
 };
 
@@ -682,12 +760,18 @@ export default function subagentsExtension(pi: ExtensionAPI) {
     // with a fresh one so a spawn in this session is not born with an
     // aborted poll signal or a stopped event stream.
     if (getSupervisor()?.isShutdown) createSupervisorInstance();
+    captureStreamTui(ctx);
     ensureStreamHub(ctx.sessionManager.getSessionId());
   });
 
   // Clean up on session shutdown
   pi.on("session_shutdown", (_event, _ctx) => {
     getSupervisor()?.shutdown();
+    // The transcript is torn down with the session; drop the projection and
+    // its tui without touching the dying tree. A new session start captures
+    // a fresh tui through the widget.
+    streamProjection = undefined;
+    streamTui = undefined;
     const hub = streamHub;
     streamHub = undefined;
     void hub?.close();
