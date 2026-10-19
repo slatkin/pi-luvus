@@ -31,8 +31,8 @@
 
 ## 5. Integration checks
 
-- [ ] 5.1 Run `pnpm test`, `pnpm run typecheck`, `pnpm run lint`, and `pnpm run format:check`; all pass with the new modules and tests.
-- [ ] 5.2 Confirm the change touches neither `luvus-done.ts`, the `PI_LUVUS_*` variables, nor the `.exit` sidecar: `git diff --name-only` lists none of them.
+- [x] 5.1 Run `pnpm test`, `pnpm run typecheck`, `pnpm run lint`, and `pnpm run format:check`; all pass with the new modules and tests.
+- [x] 5.2 Confirm the change touches neither `luvus-done.ts`, the `PI_LUVUS_*` variables, nor the `.exit` sidecar: `git diff --name-only` lists none of them.
 
 ## Workflow follow-up
 
