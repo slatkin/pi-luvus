@@ -1,8 +1,10 @@
 # pi-luvus
 
-pi integration for [Luvus](https://luvus.dev). It runs async subagents in Luvus panes, reports live agent status, and adds turn-end notifications, resumable-session titles, and subagent management and orchestration skills that try to leverage Luvus features.
+pi integration for [Luvus](https://luvus.dev). The extension does two things.
 
-The subagent code descends from [HazAT/pi-interactive-subagents](https://github.com/HazAT/pi-interactive-subagents). The completion-nudge design comes from [maplezzk's port](https://github.com/maplezzk). Luvus is the only supported terminal host.
+First, it runs the subagent system from [HazAT/pi-interactive-subagents](https://github.com/HazAT/pi-interactive-subagents) — with the completion nudge from [maplezzk's port](https://github.com/maplezzk) — in Luvus panes. That starting point already had spawn into panes, the status widget, interrupt, resume, `caller_ping`, agent roles, and the stall watchdog. On top of it, this package adds: messages between running agents (`luvus_message`), a skill and launcher that let a non-pi orchestrator such as Claude Code drive pi children, Luvus as the only supported terminal host, the context alert with handoff to a fresh agent, pane placement (right, down, or tab), live pane titles, spawn-time role records so a resume restores the role as it was at spawn, event-driven watching, and a parent-side watchdog that finishes a stuck child instead of waiting forever.
+
+Second, it reports live status to Luvus, which the starting point did not do at all. Each pane reports `working` or `idle` (and `done` or `blocked` at exit) through a status lease, pi sessions bind to their pane so closed sessions stay resumable from Luvus, and an unfocused pane pushes a Luvus notification when its turn ends.
 
 ## Configuration
 
