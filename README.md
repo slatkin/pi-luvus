@@ -20,10 +20,13 @@ Like a bad `status` block, a bad `contextAlert` block stops the extension from l
 ## Install
 
 ```bash
+pi install npm:pi-luvus
 pi install git:github.com/slatkin/pi-luvus
 # or from a local checkout:
 pi install /path/to/pi-luvus
 ```
+
+Pin to a released version with `pi install npm:pi-luvus@<version>` (npm) or `pi install git:github.com/slatkin/pi-luvus@v<version>` (git tag). Pushing a `v*` tag runs the release workflow, which re-runs the gates and publishes that version to npm.
 
 Luvus is required. Run pi inside a Luvus pane. Outside Luvus the extension spawns nothing. For environment variables and focus behavior, read [Environment](docs/guide.md#environment).
 

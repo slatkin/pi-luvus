@@ -108,6 +108,11 @@ git tag v<VERSION>
 git push && git push --tags
 ```
 
+Pushing the tag triggers the GitHub release workflow (`.github/workflows/release.yml`),
+which re-runs the gates, checks that the tag matches `package.json` version, and
+publishes the package to npm. Pushing the tag publishes to npm — no manual
+`npm publish` step.
+
 ## Step 5: Create GitHub Release
 
 ```bash

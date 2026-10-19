@@ -11,7 +11,8 @@
     "skills/",
     "README.md",
     "docs/",
-    "LICENSE"
+    "LICENSE",
+    "config.json.example"
   ],
   "license": "MIT",
   "author": "slatkin",
@@ -29,7 +30,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare": "git config core.hooksPath .githooks"
+    "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || true"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
