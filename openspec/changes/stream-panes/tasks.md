@@ -26,7 +26,7 @@
 
 ## 4. Tailer and documentation
 
-- [ ] 4.1 Add `pi-extension/luvus/stream-tail.mjs`: connect to `--socket`, select `--stream`, print a header, copy records to stdout, exit when the socket closes, and exit non-zero when the connection fails. Verify by spawning it against a temp socket in a test.
+- [x] 4.1 Add `pi-extension/luvus/stream-tail.mjs`: connect to `--socket`, select `--stream`, print a header, copy records to stdout, exit when the socket closes, and exit non-zero when the connection fails. Verify by spawning it against a temp socket in a test.
 - [x] 4.2 Document the command in `docs/guide.md` under a new `## Stream panes` section: arguments, placement, what each pane shows, and that closing a pane restores the transcript. Verify every documented argument matches the handler and the section renders as intended on read.
 
 ## 5. Integration checks
