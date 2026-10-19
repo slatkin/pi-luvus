@@ -3,6 +3,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { createStreamHub, toolOutputText, type StreamHub } from "./stream-state.ts";
 import { keyHint } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Box, Text, truncateToWidth } from "@earendil-works/pi-tui";
@@ -80,6 +81,41 @@ let activePi: ExtensionAPI | null = null;
 
 /** Latest ExtensionContext from session_start, used for widget updates. */
 let latestCtx: ExtensionContext | null = null;
+
+/**
+ * Per-session stream transport. The hub starts recording at session start so
+ * a pane opened mid-turn can replay that turn; its socket starts listening on
+ * the first attach (unit 3).
+ */
+let streamHub: StreamHub | undefined;
+
+/** Wire pi turn and tool events to one stream hub. */
+export function registerStreamEventHandlers(
+  pi: Pick<ExtensionAPI, "on">,
+  getHub: () => StreamHub | undefined,
+): void {
+  pi.on("turn_start", () => {
+    getHub()?.resetTurn();
+  });
+  pi.on("message_update", (event) => {
+    const update = event.assistantMessageEvent;
+    if (update.type !== "thinking_delta") return;
+    getHub()?.recordThinking(update.delta);
+  });
+  pi.on("tool_execution_start", (event) => {
+    getHub()?.recordToolStart(event.toolCallId, event.toolName);
+  });
+  pi.on("tool_execution_update", (event) => {
+    getHub()?.recordToolUpdate(
+      event.toolCallId,
+      event.toolName,
+      toolOutputText(event.partialResult),
+    );
+  });
+  pi.on("tool_execution_end", (event) => {
+    getHub()?.recordToolEnd(event.toolCallId, event.toolName, event.isError);
+  });
+}
 
 function getSupervisor(): Supervisor | undefined {
   return (globalThis as any)[SUPERVISOR_KEY] as Supervisor | undefined;
@@ -459,17 +495,23 @@ export default function subagentsExtension(pi: ExtensionAPI) {
   createLiveTitleController().register(pi);
 
   // Capture the UI context for widget updates
+  registerStreamEventHandlers(pi, () => streamHub);
+
   pi.on("session_start", (_event, ctx) => {
     latestCtx = ctx;
     // A previous session's shutdown made that supervisor final. Replace it
     // with a fresh one so a spawn in this session is not born with an
     // aborted poll signal or a stopped event stream.
     if (getSupervisor()?.isShutdown) createSupervisorInstance();
+    streamHub ??= createStreamHub({ sessionId: ctx.sessionManager.getSessionId() });
   });
 
   // Clean up on session shutdown
   pi.on("session_shutdown", (_event, _ctx) => {
     getSupervisor()?.shutdown();
+    const hub = streamHub;
+    streamHub = undefined;
+    void hub?.close();
   });
 
   // Tools denied via PI_DENY_TOOLS env var (set by parent agent based on frontmatter)
