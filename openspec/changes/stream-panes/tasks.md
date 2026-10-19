@@ -20,6 +20,10 @@
 - [ ] 3.3 Add the tailer command line builder, using bare `node`, double-quoted tokens, and rejection of tokens a shell would expand. Verify unit tests cover a normal path and a rejected path.
 - [ ] 3.4 Refuse to open a stream when no Luvus pane id is known, leaving state unchanged. Verify a test with the pane id unset asserts the warning and an unchanged attach state.
 
+## 3b. Projection wiring
+
+- [ ] 3b.1 Wire `StreamProjection` install/uninstall to the attach state in `index.ts`: install the projection when any stream first attaches, refresh it when the attach state changes, and uninstall when the last stream detaches, using the zero-height `ctx.ui.setWidget` factory to obtain `tui`; a layout mismatch warns once and leaves the transcript untouched. Verify a test with a fake `tui` layout and fake hub asserts install on first attach, refresh on state change, and identical-object restore on last detach.
+
 ## 4. Tailer and documentation
 
 - [ ] 4.1 Add `pi-extension/luvus/stream-tail.mjs`: connect to `--socket`, select `--stream`, print a header, copy records to stdout, exit when the socket closes, and exit non-zero when the connection fails. Verify by spawning it against a temp socket in a test.
