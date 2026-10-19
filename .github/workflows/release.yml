@@ -3,10 +3,16 @@ name: Release
 # Publishing is tied to version tags, not to pushes or check-ins.
 # Cut a release with the `release` skill: commit the version bump, tag
 # v<VERSION>, and push the tag. This workflow re-runs the gates, then
-# publishes to npm.
+# publishes to npm via trusted publishing (OIDC — no NPM_TOKEN secret).
+# npmjs.com package settings must list slatkin/pi-luvus + release.yml as
+# the trusted publisher.
 on:
   push:
     tags: ["v*"]
+
+permissions:
+  id-token: write # required for npm trusted publishing (OIDC)
+  contents: read
 
 jobs:
   publish:
@@ -37,6 +43,6 @@ jobs:
             echo "Tag v$tag does not match package.json version $version" >&2
             exit 1
           fi
+      # Trusted publishing needs npm >= 11.5.1; Node 22 bundles npm 10.x.
+      - run: npm install -g npm@latest
       - run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

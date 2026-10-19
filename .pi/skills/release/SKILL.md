@@ -110,8 +110,9 @@ git push && git push --tags
 
 Pushing the tag triggers the GitHub release workflow (`.github/workflows/release.yml`),
 which re-runs the gates, checks that the tag matches `package.json` version, and
-publishes the package to npm. Pushing the tag publishes to npm — no manual
-`npm publish` step.
+publishes the package to npm via trusted publishing (OIDC; no token secret).
+The npmjs.com package settings must list `slatkin/pi-luvus` + `release.yml` as
+the trusted publisher. Pushing the tag publishes to npm — no manual `npm publish`.
 
 ## Step 5: Create GitHub Release
 
