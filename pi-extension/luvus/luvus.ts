@@ -290,13 +290,23 @@ export function createSurface(
   return surface;
 }
 
+/** Split direction for `splitPane`: side by side (`right`) or stacked (`down`). */
+export type SplitDirection = "right" | "down";
+
 /**
  * Split a pane without taking focus and return the new pane id. The caller
  * pane is passed in rather than read from the environment, because callers
- * may carry it in an injected environment.
+ * may carry it in an injected environment. `direction` selects the split
+ * flag: `--right` (default) or `--down`.
  */
-export function splitPane(caller: string): string {
-  const result = luvus(["pane", "split", caller, "--no-focus"]);
+export function splitPane(caller: string, direction: SplitDirection = "right"): string {
+  const result = luvus([
+    "pane",
+    "split",
+    caller,
+    direction === "down" ? "--down" : "--right",
+    "--no-focus",
+  ]);
   // Verified live (fixture in test/test.ts): the new pane id is `result.pane`.
   const { pane } = result;
   if (pane === undefined || pane === null || pane === "") {
